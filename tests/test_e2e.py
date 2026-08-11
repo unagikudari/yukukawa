@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from kawa.application.services import Kawa
+from kawa.domain.identity import IdentityContext
 from kawa.projections.reducers import rebuild
 
 psycopg = pytest.importorskip("psycopg")
@@ -42,7 +43,7 @@ def _snapshot(conn):  # type: ignore[no-untyped-def]
 
 
 def test_result_driven_readiness_loop(conn) -> None:  # type: ignore[no-untyped-def]
-    k = Kawa(conn, origin_node="test", actor_ref="pytest")
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("p1", "kawa", "loop")
     k.derive_work("impl", "p1", "implement", role_requirement="Implementer")
     k.derive_work("review", "p1", "review", role_requirement="Reviewer")
@@ -64,7 +65,7 @@ def test_result_driven_readiness_loop(conn) -> None:  # type: ignore[no-untyped-
 
 
 def test_conflicted_result_still_satisfies_but_flags(conn) -> None:  # type: ignore[no-untyped-def]
-    k = Kawa(conn, origin_node="test", actor_ref="pytest")
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("p2", "kawa", "conflict")
     k.derive_work("a", "p2", "implement")
     k.derive_work("b", "p2", "review")
@@ -77,7 +78,7 @@ def test_conflicted_result_still_satisfies_but_flags(conn) -> None:  # type: ign
 
 
 def test_failed_dependency_blocks(conn) -> None:  # type: ignore[no-untyped-def]
-    k = Kawa(conn, origin_node="test", actor_ref="pytest")
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("p3", "kawa", "fail")
     k.derive_work("x", "p3", "implement")
     k.derive_work("y", "p3", "review")
@@ -87,7 +88,7 @@ def test_failed_dependency_blocks(conn) -> None:  # type: ignore[no-untyped-def]
 
 
 def test_projections_are_disposable(conn) -> None:  # type: ignore[no-untyped-def]
-    k = Kawa(conn, origin_node="test", actor_ref="pytest")
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("p4", "kawa", "rebuild")
     k.derive_work("w", "p4", "implement")
     k.record_result("w", "success", "r-w")

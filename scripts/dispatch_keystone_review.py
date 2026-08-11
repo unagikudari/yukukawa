@@ -10,6 +10,7 @@ import os
 
 from kawa.adapters import broker_bridge as bridge
 from kawa.application.services import Kawa
+from kawa.domain.identity import IdentityContext
 from kawa.storage.db import connect
 
 CONTEXT = """[kawa Operation & Effect Identity v0.1 (keystone) 独立敵対的レビュー — 第2レーン、refute-by-default]
@@ -27,8 +28,9 @@ vendor-A 第1レーン は NOT_CONFORMING / surviving_counterexamples=true と�
 
 def main() -> int:
     conn = connect()
-    k = Kawa(conn, origin_node=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
-            actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local"))
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
+        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+        actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
     k.create_plan("plan-keystone", "kawa", "review & freeze the Operation & Effect Identity keystone (#60)")
     k.set_plan_lifecycle("plan-keystone", "running")
     k.derive_work("w-review-keystone", "plan-keystone", "review", role_requirement="Reviewer")

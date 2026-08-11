@@ -21,6 +21,7 @@ from kawa.domain.events import (
 )
 from kawa.projections.reducers import reduce
 from kawa.storage.emit import Emitter
+from kawa.domain.identity import IdentityContext
 
 
 class WorkItem(TypedDict):
@@ -31,9 +32,9 @@ class WorkItem(TypedDict):
 
 
 class Kawa:
-    def __init__(self, conn: psycopg.Connection, *, origin_node: str, actor_ref: str) -> None:
+    def __init__(self, conn: psycopg.Connection, *, identity: IdentityContext) -> None:
         self.conn = conn
-        self.emitter = Emitter(conn, origin_node=origin_node, actor_ref=actor_ref)
+        self.emitter = Emitter(conn, identity=identity)
 
     def _emit_reduce(self, payload: Payload, **kw: str | None) -> Event:
         event = self.emitter.emit(payload, **kw)  # type: ignore[arg-type]

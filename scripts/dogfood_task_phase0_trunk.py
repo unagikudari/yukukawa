@@ -8,13 +8,15 @@ from __future__ import annotations
 import os
 
 from kawa.application.services import Kawa
+from kawa.domain.identity import IdentityContext
 from kawa.storage.db import connect
 
 
 def main() -> int:
     conn = connect()
-    k = Kawa(conn, origin_node=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
-            actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local"))
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
+        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+        actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
 
     k.create_plan("plan-phase0-trunk", "kawa",
                   "review and land the Phase 0 implementation (PR #58) on trunk")

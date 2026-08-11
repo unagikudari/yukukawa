@@ -8,6 +8,7 @@ import pytest
 
 from kawa.adapters import broker_bridge as bridge
 from kawa.application.services import Kawa
+from kawa.domain.identity import IdentityContext
 
 pytest.importorskip("psycopg")
 
@@ -32,7 +33,7 @@ def conn():  # type: ignore[no-untyped-def]
 
 
 def test_dispatch_bridge_keeps_request_and_result_in_kawa(conn) -> None:  # type: ignore[no-untyped-def]
-    k = Kawa(conn, origin_node="test", actor_ref="pytest")
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("p", "kawa", "bridge")
     k.derive_work("w-rev", "p", "review", role_requirement="Reviewer")
 
@@ -58,7 +59,7 @@ def test_dispatch_bridge_keeps_request_and_result_in_kawa(conn) -> None:  # type
 
 
 def test_dispatch_result_drives_downstream_readiness(conn) -> None:  # type: ignore[no-untyped-def]
-    k = Kawa(conn, origin_node="test", actor_ref="pytest")
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("p2", "kawa", "bridge2")
     k.derive_work("w-a", "p2", "review", role_requirement="Reviewer")
     k.derive_work("w-b", "p2", "verify", role_requirement="Verifier")

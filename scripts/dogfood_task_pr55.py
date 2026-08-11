@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 from kawa.application.services import Kawa
+from kawa.domain.identity import IdentityContext
 from kawa.projections.reducers import rebuild
 from kawa.storage.db import connect
 
@@ -25,8 +26,9 @@ def main() -> int:
         cur.execute(f"TRUNCATE {_ALL}")   # begin real Kawa history at event #1
     conn.commit()
 
-    k = Kawa(conn, origin_node=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
-            actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local"))
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
+        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+        actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
 
     k.create_plan("plan-pr55-fold", "kawa",
                   "fold the recoverable PR#55 review findings into console-read-model, aligned with sql/0002")

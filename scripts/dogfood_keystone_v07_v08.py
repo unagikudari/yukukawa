@@ -10,6 +10,7 @@ import os
 
 from kawa.adapters import broker_bridge as bridge
 from kawa.application.services import Kawa
+from kawa.domain.identity import IdentityContext
 from kawa.storage.db import connect
 
 
@@ -29,8 +30,9 @@ def review_round(k: Kawa, conn, *, plan_ref: str, objective: str, lifecycle: str
 
 def main() -> int:
     conn = connect()
-    k = Kawa(conn, origin_node=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
-            actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local"))
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
+        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+        actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
 
     review_round(
         k, conn,

@@ -23,14 +23,16 @@ from kawa.domain.events import (
     WorkDerived,
 )
 from kawa.domain.ids import HLC, digest, event_hash
+from kawa.domain.identity import IdentityContext
 
 
 class Emitter:
-    def __init__(self, conn: psycopg.Connection, *, origin_node: str, actor_ref: str) -> None:
+    def __init__(self, conn: psycopg.Connection, *, identity: IdentityContext) -> None:
         self.conn = conn
-        self.origin_node = origin_node
-        self.actor_ref = actor_ref
-        self.hlc = HLC(node=origin_node)
+        self.identity = identity
+        self.origin_node = identity.node_ref
+        self.actor_ref = identity.actor_ref
+        self.hlc = HLC(node=identity.node_ref)
 
     def emit(
         self,
