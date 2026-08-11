@@ -50,6 +50,9 @@ CREATE TABLE events (
     payload_digest  text        NOT NULL,        -- digest of the typed payload
     prev_hash       text,                        -- previous event's self_hash for this origin  (= #25 origin_prev_hash)
     self_hash       text        NOT NULL,        -- content hash of this event (= #25 content_hash); event_id = self_hash
+    signature       text,                        -- Phase 4A: provenance over content_hash; NULL = unattested; NOT identity
+    signing_key_ref text,                        -- which key signed; resolves the historical pubkey (rotation-safe)
+    signature_scheme text,                       -- mechanics/profile (e.g. 'ed25519'); NOT a Core Domain enum
 
     UNIQUE (origin_node, origin_seq)
 );
@@ -70,6 +73,8 @@ correlation_id / causation_id / source_message_id — Phase-0 expresses correlat
 schema_version
 scope_ref                    — #25 authorized-interest replication filter (Phase 4)
 ```
+
+**Provenance ≠ identity ≠ trust (Phase 4A).** `signature` is a signature over the canonical `content_hash` (= `self_hash`); it is **not** the Event identity (`event_id = content_hash` is unchanged) and is NOT fed into the hash. `signing_key_ref` names which key signed so a key registry resolves the *historical* public key — rotation/revocation of the current key does not break verification of past Events. `signature_scheme` is a mechanics/profile string (e.g. `ed25519`), deliberately not a constrained Domain enum. A valid signature proves **cryptographic provenance** ("bound to this key"), which is **separate from current trust standing** (policy / revocation / key lineage, evaluated by ③④). Verification failure fails closed at admission / replication — never accepted as unknown. NULL columns = an unattested write, recorded honestly.
 
 Naming map to the #25 canonical continuity spine: `prev_hash` = `origin_prev_hash`, `self_hash` = `content_hash`. **Deliberate Phase-0 deviation from #25:** Phase-0 realizes `event_id = self_hash` (a content-addressed PK). In `event-log-and-replication-v0.1.md` (#25) `event_id` is instead a **time-sortable UUIDv7/ULID** and `content_hash` is a *separate* cross-check field — so #25's time-sortable-`event_id` property is not held by the Phase-0 subset. Unifying the two (a UUIDv7 `event_id` plus a distinct `content_hash`) is deferred; until then this is an explicit subset deviation, not a silent contradiction. Where the consolidated `specification-v0.4.md` uses the logical name `event_type`, the physical column is `kind`; they denote the same concept.
 

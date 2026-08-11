@@ -67,3 +67,8 @@ coverage/
 htmlcov/
 .coverage
 *.egg-info/
+
+# Node credential material — OPERATOR data, never committed (publication-boundary)
+*node-identity*.json
+*node-keys*.json
+.kawa/

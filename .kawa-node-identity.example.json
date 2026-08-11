@@ -1,0 +1,6 @@
+{
+  "_comment": "Generated locally on first run by kawa.domain.credential.load_or_create_local_node(); the REAL file (private_pem) is operator data and is git-ignored. Copy to a git-ignored path and point KAWA_NODE_IDENTITY at it, or let the runtime create it.",
+  "node_ref": "node-a",
+  "signing_key_ref": "ed25519:<fingerprint>",
+  "private_pem": "-----BEGIN PRIVATE KEY----- <generated locally; never commit a real one> -----END PRIVATE KEY-----"
+}

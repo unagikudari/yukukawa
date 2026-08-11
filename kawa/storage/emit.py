@@ -66,6 +66,13 @@ class Emitter:
                 payload_digest=payload_digest,
                 prev_hash=prev_hash,
             )
+            # attest provenance: sign the canonical content_hash (= self_hash). Signature is NOT
+            # identity (event_id stays = content_hash) and is NOT fed back into the hash. Absent when
+            # the identity is unattested (no credential) — recorded honestly as NULL, never faked.
+            cred = self.identity.credential
+            signature = cred.sign(self_hash) if cred is not None else None
+            signing_key_ref = cred.signing_key_ref if cred is not None else None
+            signature_scheme = cred.signature_scheme if cred is not None else None
             event = Event(
                 event_id=self_hash,
                 origin_node=self.origin_node,
@@ -78,6 +85,9 @@ class Emitter:
                 payload_digest=payload_digest,
                 prev_hash=prev_hash,
                 self_hash=self_hash,
+                signature=signature,
+                signing_key_ref=signing_key_ref,
+                signature_scheme=signature_scheme,
                 payload=payload,
             )
             # VERIFY before APPEND — never persist an inconsistent envelope.
@@ -86,12 +96,14 @@ class Emitter:
 
             cur.execute(
                 "INSERT INTO events (event_id, origin_node, origin_seq, hlc, kind, subject_ref, "
-                "actor_ref, policy_digest, payload_digest, prev_hash, self_hash) "
-                "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s,%s)",
+                "actor_ref, policy_digest, payload_digest, prev_hash, self_hash, "
+                "signature, signing_key_ref, signature_scheme) "
+                "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     event.event_id, event.origin_node, event.origin_seq, event.hlc,
                     event.kind.value, event.subject_ref, event.actor_ref, event.policy_digest,
                     event.payload_digest, event.prev_hash, event.self_hash,
+                    event.signature, event.signing_key_ref, event.signature_scheme,
                 ),
             )
             _insert_payload(cur, event)

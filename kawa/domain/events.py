@@ -87,6 +87,10 @@ class Event(BaseModel):
     payload_digest: str
     prev_hash: str | None
     self_hash: str
+    # provenance (Phase 4A) — over content_hash (= self_hash); NEVER part of Event identity or verify()
+    signature: str | None = None
+    signing_key_ref: str | None = None       # which key signed; resolves the historical pubkey (rotation-safe)
+    signature_scheme: str | None = None      # mechanics/profile (e.g. 'ed25519'); not a Core Domain enum
     payload: Payload
 
     def verify(self) -> bool:

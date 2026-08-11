@@ -11,7 +11,7 @@ of routing all identity through this single seam.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 Assurance = Literal["unattested", "software_key", "tpm"]
@@ -24,6 +24,7 @@ class IdentityContext:
     node_ref: str
     actor_ref: str
     assurance: Assurance = "unattested"
+    credential: "object | None" = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.node_ref or not self.actor_ref:
@@ -40,3 +41,16 @@ class IdentityContext:
         change to introduce attested Node identity (credential/JWT/TPM); the Emit path stays fixed.
         """
         return cls(node_ref=node_ref, actor_ref=actor_ref, assurance=assurance)
+
+    @classmethod
+    def from_local_node(cls, credential: "object", *, actor_ref: str) -> "IdentityContext":
+        """Establish identity from an attested local Node credential (Phase 4A, first assurance profile).
+
+        `origin_node` is bound to the credential (`credential.node_ref`), never caller-declared;
+        `assurance='software_key'`. Emit signs each Event's canonical `content_hash` with this
+        credential — that is **cryptographic provenance, not current trust standing** (trust is
+        evaluated separately: policy / revocation / key lineage). The credential is a replaceable
+        profile (Ed25519 software key now; TPM/HSM/SPIFFE later) — the Emit path never changes.
+        """
+        return cls(node_ref=credential.node_ref, actor_ref=actor_ref, assurance="software_key",
+                   credential=credential)

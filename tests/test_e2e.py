@@ -195,3 +195,29 @@ def test_console_shared_sidebar_and_routing(conn) -> None:  # type: ignore[no-un
     fleet = render(conn, "/fleet")                                # designed-but-not-implemented
     assert fleet is not None and "not implemented" in fleet and "planned" in route
     assert render(conn, "/nope") is None                          # unknown path -> 404
+
+
+def test_attested_emit_stamps_provenance(conn, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Phase 4A: an attested IdentityContext binds origin_node to the credential and Emit signs the
+    canonical content_hash. Signature is provenance, not identity (event_id stays = self_hash)."""
+    from kawa.domain.credential import load_or_create_local_node, verify_provenance
+    cred = load_or_create_local_node(str(tmp_path / "node.json"), node_ref="node-att")
+    k = Kawa(conn, identity=IdentityContext.from_local_node(cred, actor_ref="agent-att"))
+    ev = k.create_plan("pa", "kawa", "attested")
+    with conn.cursor() as cur:
+        cur.execute("SELECT origin_node, event_id, self_hash, signature, signing_key_ref, "
+                    "signature_scheme FROM events WHERE event_id=%s", (ev.event_id,))
+        onode, eid, ch, sig, kref, scheme = cur.fetchone()
+    assert onode == "node-att"                         # origin bound to the credential, not a caller string
+    assert eid == ch                                   # identity is still content_hash, unchanged
+    assert sig is not None and kref == cred.signing_key_ref and scheme == "ed25519"
+    assert verify_provenance(ch, sig, cred.public_pem()) is True    # cryptographic provenance verifies
+
+
+def test_unattested_emit_has_null_signature(conn) -> None:  # type: ignore[no-untyped-def]
+    """An unattested runtime records a NULL signature honestly — never a faked one."""
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="node-u", actor_ref="a"))
+    ev = k.create_plan("pu2", "kawa", "unattested")
+    with conn.cursor() as cur:
+        cur.execute("SELECT signature, signing_key_ref FROM events WHERE event_id=%s", (ev.event_id,))
+        assert cur.fetchone() == (None, None)
