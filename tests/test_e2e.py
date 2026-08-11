@@ -151,3 +151,17 @@ def test_agent_replacement_resumes_from_kawa_state(conn) -> None:  # type: ignor
     assert nxt is not None and nxt["work_ref"] == "check"     # continuity survived two runtime losses
     c.record_result("check", "success", "r-check")
     assert c.work_state("check") == "finished"
+
+
+def test_console_renders_from_live_projections(conn) -> None:  # type: ignore[no-untyped-def]
+    """Phase 3: the Console renders from LIVE projections, never a static snapshot — a change is
+    reflected on the next render."""
+    from kawa.console.render import render_page
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("pc", "kawa", "console")
+    k.derive_work("wc", "pc", "implement", role_requirement="Implementer")
+    page1 = render_page(conn)
+    assert "pc" in page1 and "wc" in page1 and "READY" in page1   # live current_work.execution='ready'
+    k.record_result("wc", "success", "r-wc")                     # change the live state
+    page2 = render_page(conn)
+    assert "finished" in page2 and page2 != page1                # re-read reflects it (no snapshot)

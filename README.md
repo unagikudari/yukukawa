@@ -158,6 +158,18 @@ KAWA_DSN=dbname=kawa pytest -q                      # DB-backed tests run agains
 Boot-verified on a clean checkout (fresh venv → migrations → pytest → **13 passed, 0 skipped**).
 The DB-backed tests **skip** without a database; a genuine boot check requires them to run (zero skips).
 
+### Operator Console (Phase 3)
+
+The repository-native Console renders from the **live** `current_*` projections on every request
+(no static snapshot embedded):
+
+```bash
+KAWA_DSN=dbname=kawa python scripts/console_serve.py     # then open http://127.0.0.1:8099
+```
+
+It shows the current plan/work route — including Kawa's own development roadmap — from the disposable
+projections; drop-and-rebuild changes nothing it depends on. Reads only.
+
 ### Component status (not collapsed to one label)
 
 ```text
