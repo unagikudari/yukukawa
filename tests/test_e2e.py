@@ -123,3 +123,31 @@ def test_execution_unknown_does_not_satisfy_or_proceed(conn) -> None:  # type: i
     assert dep_state == "pending", f"unknown must NOT satisfy the dependency, got {dep_state}"
     assert act_exec == "execution_unknown", f"the effect Work stays execution_unknown, got {act_exec}"
     assert next_exec != "ready", f"downstream must NOT become actionable on unknown, got {next_exec}"
+
+
+def test_agent_replacement_resumes_from_kawa_state(conn) -> None:  # type: ignore[no-untyped-def]
+    """#72 Phase-2 exit: agent replacement / runtime loss does not erase organizational continuity.
+    A fresh runtime holding NO prior context resumes the workflow purely from durable Kawa state via
+    work.next — no agent-to-agent messaging, no in-runtime queue. Kawa holds the work; runtimes pass
+    through."""
+    # Runtime A sets up the workflow, then disappears (it held no workflow state — all durable in Kawa).
+    a = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="runtime-a", actor_ref="agent-a"))
+    a.create_plan("pr", "kawa", "resume-continuity")
+    a.derive_work("build", "pr", "implement", role_requirement="Implementer")
+    a.derive_work("check", "pr", "review", role_requirement="Reviewer")
+    a.declare_dependency("check", "build", "ALL")
+    del a  # runtime A gone
+
+    # Runtime B — brand new, no prior context — discovers the actionable Work from durable state.
+    b = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="runtime-b", actor_ref="agent-b"))
+    nxt = b.work_next("Implementer")
+    assert nxt is not None and nxt["work_ref"] == "build"     # resumed purely from Kawa state
+    b.record_result("build", "success", "r-build")
+    del b  # runtime B gone mid-workflow
+
+    # Runtime C — also new — picks up the now-unblocked downstream Work. Result, not a message, routed it.
+    c = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="runtime-c", actor_ref="agent-c"))
+    nxt = c.work_next("Reviewer")
+    assert nxt is not None and nxt["work_ref"] == "check"     # continuity survived two runtime losses
+    c.record_result("check", "success", "r-check")
+    assert c.work_state("check") == "finished"
