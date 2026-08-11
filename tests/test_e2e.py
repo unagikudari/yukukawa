@@ -96,3 +96,30 @@ def test_projections_are_disposable(conn) -> None:  # type: ignore[no-untyped-de
     n = rebuild(conn)                                    # DROP-equivalent + replay
     assert n >= 3
     assert _snapshot(conn) == before                     # identical after rebuild
+
+
+def test_execution_unknown_does_not_satisfy_or_proceed(conn) -> None:  # type: ignore[no-untyped-def]
+    """#53 §10 / Phase-1 exit: an `execution_unknown` Result must NOT satisfy a dependency or let
+    downstream Work proceed — unknown is not success, so a consequential effect cannot be blindly
+    retried or treated as done. Verification is required first."""
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("pu", "kawa", "execution-unknown safety")
+    k.derive_work("act", "pu", "implement", role_requirement="Implementer")   # a consequential effect
+    k.derive_work("next", "pu", "implement", role_requirement="Implementer")
+    k.declare_dependency("next", "act", "ALL")
+
+    # the effect's outcome is UNKNOWN (crash-after-effect-before-Result), not success
+    k.record_result("act", "execution_unknown", "r-act-unknown")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT dependency_state FROM current_work_dependency "
+                    "WHERE work_ref='next' AND dependency_work_ref='act'")
+        dep_state = cur.fetchone()[0]
+        cur.execute("SELECT execution FROM current_work WHERE work_ref='act'")
+        act_exec = cur.fetchone()[0]
+        cur.execute("SELECT execution FROM current_work WHERE work_ref='next'")
+        next_exec = cur.fetchone()[0]
+
+    assert dep_state == "pending", f"unknown must NOT satisfy the dependency, got {dep_state}"
+    assert act_exec == "execution_unknown", f"the effect Work stays execution_unknown, got {act_exec}"
+    assert next_exec != "ready", f"downstream must NOT become actionable on unknown, got {next_exec}"
