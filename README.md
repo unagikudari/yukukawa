@@ -136,8 +136,17 @@ Implementation stack proposal: [Issue #57](https://github.com/unagikudari/kawa/i
 
 Requires Python ≥ 3.12 and a local PostgreSQL.
 
+First-time PostgreSQL only: ensure your OS user has a role that can create databases
+(peer auth over the local socket):
+
 ```bash
-python -m venv .venv && . .venv/bin/activate      # avoids PEP-668 externally-managed errors
+sudo -u postgres createuser --createdb "$USER"     # skip if `createdb` already works for you
+```
+
+Then, from a clean clone:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate      # use python3; venv also avoids PEP-668 errors
 pip install -e '.[dev]'                            # pydantic, psycopg[binary]; dev adds pytest, mypy
 createdb kawa                                      # a local database named 'kawa'
 cp .env.example .env                               # edit if your DSN differs
