@@ -176,5 +176,22 @@ def test_console_shows_dispatch_from_live_work_dispatch(conn) -> None:  # type: 
     k.create_plan("pd", "kawa", "dispatch")
     k.derive_work("wd", "pd", "review", role_requirement="Reviewer")
     bridge.request_review(conn, work_ref="wd", context="ctx", target_agent="vendor-A", transport="broker")
-    page = render_page(conn)
-    assert "Runtime &amp; Dispatch" in page and "vendor-A" in page and "broker" in page
+    from kawa.console.render import render
+    page = render(conn, "/dispatch")
+    assert page is not None and "vendor-A" in page and "broker" in page
+
+
+def test_console_shared_sidebar_and_routing(conn) -> None:  # type: ignore[no-untyped-def]
+    """The sidebar is shared across pages (generated once from SCREENS); each screen is its own page;
+    the active page is highlighted; a planned screen shows an honest placeholder; unknown path = 404."""
+    from kawa.console.render import render
+    route = render(conn, "/")
+    disp = render(conn, "/dispatch")
+    for page in (route, disp):                                    # every page carries the same nav
+        assert page is not None
+        assert 'href="/"' in page and 'href="/dispatch"' in page and 'href="/fleet"' in page
+    assert 'class="nav-item active" href="/"' in route            # active highlight differs per page
+    assert 'class="nav-item active" href="/dispatch"' in disp
+    fleet = render(conn, "/fleet")                                # designed-but-not-implemented
+    assert fleet is not None and "not implemented" in fleet and "planned" in route
+    assert render(conn, "/nope") is None                          # unknown path -> 404

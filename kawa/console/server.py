@@ -1,26 +1,37 @@
-"""Stdlib HTTP server for the Operator Console (no third-party web dependency)."""
+"""Stdlib HTTP server for the Operator Console (no third-party web dependency).
+
+Routes each path to a screen via `render(conn, path)`; an unknown path is a 404. A fresh read per
+request — projections are live. Reads only.
+"""
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from kawa.console.render import render_page
+from kawa.console.render import render
 from kawa.storage.db import connect
 
 
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
-        if self.path not in ("/", "/index.html"):
-            self.send_error(404); return
+        path = self.path.split("?", 1)[0]
+        if path == "/index.html":
+            path = "/"
         try:
-            with connect() as conn:          # a fresh read per request; projections are live
-                page = render_page(conn).encode("utf-8")
+            with connect() as conn:            # a fresh read per request; projections are live
+                page = render(conn, path)
         except Exception as exc:  # pragma: no cover - surfaced to the operator, never a blank page
-            self.send_error(500, "projection read failed", str(exc)); return  # ASCII reason; utf-8 detail in body (ja_JP locale)
+            # ASCII reason phrase (HTTP status line is latin-1); detail goes in the utf-8 body.
+            self.send_error(500, "projection read failed", str(exc))
+            return
+        if page is None:
+            self.send_error(404, "no such screen")
+            return
+        body = page.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(page)))
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(page)
+        self.wfile.write(body)
 
     def log_message(self, *a: object) -> None:  # quiet
         pass
