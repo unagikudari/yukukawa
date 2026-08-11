@@ -139,7 +139,7 @@ def render_page(conn: psycopg.Connection) -> str:
 _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Kawa Console — {active}</title>
 <style>
-:root{{--bg:#0D1117;--side:#0A0D13;--panel:#161B22;--bd:#30363D;--tx:#E6EDF3;--mut:#8B949E;
+:root{{--bg:#0D1117;--side:#0A0D13;--panel:#161B22;--card:#121722;--bd:#30363D;--tx:#E6EDF3;--mut:#8B949E;
 --ok:#3FB950;--warn:#D29922;--crit:#F85149;--inc:#A371F7;--done:#2DD4BF;--accent:#2DD4BF}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--tx);
 font:14px/1.5 ui-sans-serif,system-ui,sans-serif;display:flex;min-height:100vh}}
@@ -158,7 +158,7 @@ border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .top h1{{font-size:15px;margin:0}}
 .top .live{{margin-left:auto;color:var(--mut);font-size:12px;font-family:ui-monospace,monospace}}
 .wrap{{padding:16px 20px;max-width:1000px}}
-.card{{background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px}}
+.card{{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px}}
 .card h2{{font-size:14px;margin:0 0 2px;font-family:ui-monospace,monospace}}
 .obj{{margin:0 0 8px;color:var(--mut);font-size:12px}}
 .pill{{font-size:11px;color:var(--mut);border:1px solid var(--bd);border-radius:10px;padding:1px 8px}}
@@ -166,9 +166,13 @@ border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .wr{{font-family:ui-monospace,monospace;font-size:12px}}.meta{{color:var(--mut);font-size:12px}}
 .dep{{grid-column:1/-1;color:var(--mut);font-size:11px;font-family:ui-monospace,monospace}}
 .st{{font-size:11px;font-weight:600;font-family:ui-monospace,monospace;justify-self:end;padding:1px 8px;border-radius:10px;border:1px solid}}
-.st.ok{{color:var(--ok);border-color:var(--ok)}}.st.warn{{color:var(--warn);border-color:var(--warn)}}
-.st.crit{{color:var(--crit);border-color:var(--crit)}}.st.inc{{color:var(--inc);border-color:var(--inc)}}
-.st.done{{color:var(--done);border-color:var(--done)}}.st.mut{{color:var(--mut);border-color:var(--bd)}}
+.st.ok{{color:#7FD79A;border-color:var(--ok);background:rgba(63,185,80,.10)}}
+.st.warn{{color:#E0B34A;border-color:var(--warn);background:rgba(210,153,34,.10)}}
+.st.crit{{color:#F0837C;border-color:var(--crit);background:rgba(248,81,73,.10)}}
+/* INCOMPLETE is first-class: violet diagonal HATCH (north-star hatchIncomplete), never a plain fill or spinner */
+.st.inc{{color:#CBB6F5;border-color:var(--inc);background:repeating-linear-gradient(45deg,rgba(163,113,247,.20),rgba(163,113,247,.20) 3px,transparent 3px,transparent 7px)}}
+.st.done{{color:var(--done);border-color:var(--done);background:rgba(45,212,191,.10)}}
+.st.mut{{color:var(--mut);border-color:var(--bd)}}
 .conf{{color:var(--crit)}}.mut{{color:var(--mut)}}
 table.disp{{width:100%;border-collapse:collapse;font-size:12px}}
 table.disp th{{text-align:left;color:var(--mut);font-weight:500;padding:3px 6px;border-bottom:1px solid var(--bd)}}
