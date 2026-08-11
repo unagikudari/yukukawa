@@ -132,6 +132,44 @@ The first dogfood milestone is:
 
 Implementation stack proposal: [Issue #57](https://github.com/unagikudari/kawa/issues/57)
 
+### Quickstart (clean clone, Phase 0)
+
+Requires Python ≥ 3.12 and a local PostgreSQL.
+
+```bash
+python -m venv .venv && . .venv/bin/activate      # avoids PEP-668 externally-managed errors
+pip install -e '.[dev]'                            # pydantic, psycopg[binary]; dev adds pytest, mypy
+createdb kawa                                      # a local database named 'kawa'
+cp .env.example .env                               # edit if your DSN differs
+export KAWA_DSN=dbname=kawa
+python scripts/apply_migrations.py                 # applies sql/0001..NNNN in order, stop-on-error
+KAWA_DSN=dbname=kawa pytest -q                      # DB-backed tests run against that database
+```
+
+Boot-verified on a clean checkout (fresh venv → migrations → pytest → **13 passed, 0 skipped**).
+The DB-backed tests **skip** without a database; a genuine boot check requires them to run (zero skips).
+
+### Component status (not collapsed to one label)
+
+```text
+                    DESIGNED  VALIDATED  IMPLEMENTED  INTEGRATED  DEPLOYABLE
+Foundational specs     ✓          ✓          n/a          ✓           —
+Keystone (op/effect)   ✓          ✓          partial      ✓           —
+Phase 0 impl           ✓          ✓          ✓            ✓        ✓ (clean clone)
+Console                ✓        partial       ✗            —           —      (no serving code yet)
+Semantic Retrieval     —          —           ✗           —           —
+```
+
+Deploying this repository yields the Phase 0 substrate and its tests. It does **not** yet yield a
+Console — the Console is DESIGNED (`docs/console-read-model-v0.1.md`, `docs/design/`) but has no
+serving code.
+
+### Document authority
+
+Current-vs-historical map: [`docs/supersession-matrix-v0.1.md`](docs/supersession-matrix-v0.1.md).
+Consolidated architecture: [`docs/specification-v0.4.md`](docs/specification-v0.4.md). Superseded
+documents in the tree are redirect stubs; their full text remains in Git history.
+
 ## Architecture discipline
 
 Kawa is actively reviewed against counterexamples and principle drift.

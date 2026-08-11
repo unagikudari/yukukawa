@@ -1,0 +1,27 @@
+name: drift-check
+
+# Structurally enforces Theme E (silent vocabulary / document-set drift) using
+# registry/vocabulary.json as the single source of truth. Fails on any NEW drift;
+# pre-existing known drift is tracked in registry/drift-baseline.json. See issue #34.
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "registry/**"
+      - "README.md"
+      - "scripts/lint_vocabulary_drift.py"
+      - ".github/workflows/drift-check.yml"
+  push:
+    branches: [main, "agent/**", "spec/**"]
+
+jobs:
+  vocabulary-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Vocabulary & document-drift lint
+        run: python3 scripts/lint_vocabulary_drift.py

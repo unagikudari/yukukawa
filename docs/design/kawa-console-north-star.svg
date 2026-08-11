@@ -1,0 +1,352 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" font-family="Inter, ui-sans-serif, system-ui, sans-serif">
+  <!-- ================================================================
+       KAWA · OPERATOR CONSOLE — NORTH STAR (not pixel-perfect)
+       Purpose: convey character, hierarchy, and the SEPARATE-DIMENSIONS
+       discipline. Real-looking labels/data; dark-console density.
+       Invariant colours are kept SEPARATE from the brand accent.
+       ================================================================ -->
+  <defs>
+    <!-- INCOMPLETE is first-class: violet + diagonal hatch. Never a spinner,
+         never green, never red. "The verifier lacks inputs." -->
+    <pattern id="hatchIncomplete" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#241A3A"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#A371F7" stroke-width="2"/>
+    </pattern>
+    <!-- STALE / unknown: grey dot pattern, distinct from both ok and fail -->
+    <pattern id="hatchStale" width="5" height="5" patternUnits="userSpaceOnUse">
+      <rect width="5" height="5" fill="#161C28"/>
+      <circle cx="1.2" cy="1.2" r="0.9" fill="#3A4152"/>
+    </pattern>
+    <linearGradient id="topbar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#111826"/>
+      <stop offset="1" stop-color="#0C111B"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- ============================ CANVAS ============================ -->
+  <rect width="1440" height="900" fill="#0B0E14"/>
+
+  <!-- ============================ TOP BAR ============================ -->
+  <rect x="0" y="0" width="1440" height="48" fill="url(#topbar)"/>
+  <rect x="0" y="47" width="1440" height="1" fill="#1E2636"/>
+  <!-- brand: accent is BRAND/FOCUS ONLY — carries no severity meaning -->
+  <rect x="20" y="16" width="16" height="16" rx="3" fill="#2DD4BF"/>
+  <text x="46" y="29" fill="#E6EAF2" font-size="14" font-weight="700" letter-spacing="1.5">KAWA</text>
+  <text x="94" y="29" fill="#5C6577" font-size="12" letter-spacing="2">OPERATOR CONSOLE</text>
+
+  <!-- command / search -->
+  <rect x="470" y="11" width="360" height="26" rx="6" fill="#0C111B" stroke="#232B3A"/>
+  <text x="486" y="28" fill="#4B5568" font-size="12" font-family="ui-monospace, Menlo, monospace">›  op:  node:  standing:  verdict:INCOMPLETE …</text>
+  <text x="806" y="28" fill="#3A4152" font-size="11" font-family="ui-monospace, monospace">⌘K</text>
+
+  <!-- projection-freshness / perf-contract badge (local-first posture, always visible) -->
+  <rect x="980" y="10" width="230" height="28" rx="6" fill="#0F1622" stroke="#233047"/>
+  <circle cx="996" cy="24" r="3.5" fill="#3FB950"/>
+  <text x="1006" y="28" fill="#8A94A6" font-size="11" font-family="ui-monospace, monospace">p95 <tspan fill="#E6EAF2">22ms</tspan> · &lt;40ms ✓ · refresh <tspan fill="#E6EAF2">4s</tspan></text>
+  <text x="1226" y="28" fill="#5C6577" font-size="11" font-family="ui-monospace, monospace">14:07:52Z</text>
+  <circle cx="1340" cy="24" r="11" fill="#182234" stroke="#2A3550"/>
+  <text x="1340" y="28" fill="#8A94A6" font-size="11" text-anchor="middle" font-weight="700">yr</text>
+  <text x="1358" y="28" fill="#5C6577" font-size="11">node-b-cc-primary</text>
+
+  <!-- ============================ LEFT RAIL ============================ -->
+  <rect x="0" y="48" width="56" height="852" fill="#0A0D13"/>
+  <rect x="55" y="48" width="1" height="852" fill="#1A2130"/>
+  <!-- active = Situation (accent bar = focus, not health) -->
+  <rect x="0" y="70" width="3" height="40" fill="#2DD4BF"/>
+  <g font-size="9" text-anchor="middle" font-family="ui-monospace, monospace">
+    <rect x="14" y="76" width="28" height="28" rx="6" fill="#152232" stroke="#26506b"/>
+    <text x="28" y="94" fill="#5EEAD4">SIT</text>
+    <text x="28" y="128" fill="#5C6577">EVD</text>
+    <text x="28" y="170" fill="#5C6577">AUTH</text>
+    <text x="28" y="212" fill="#5C6577">FLT</text>
+    <text x="28" y="254" fill="#5C6577">GRPH</text>
+    <text x="28" y="296" fill="#5C6577">MCP</text>
+  </g>
+
+  <!-- screen title -->
+  <text x="72" y="46" fill="#E6EAF2" font-size="0"></text>
+
+  <!-- ================= SITUATION STRIP — 5 SEPARATE DIMENSIONS ================= -->
+  <!-- The five axes are NEVER collapsed into one status/health bit. -->
+  <text x="72" y="76" fill="#6E7A8C" font-size="11" letter-spacing="2" font-weight="600">SITUATION — FIVE STANDING DIMENSIONS (never merged)</text>
+
+  <!-- card template values -->
+  <g font-family="Inter, sans-serif">
+    <!-- 1 AUTHORITY -->
+    <g>
+      <rect x="72" y="88" width="256" height="104" rx="8" fill="#121722" stroke="#1F2838" filter="url(#soft)"/>
+      <rect x="72" y="88" width="3" height="104" rx="2" fill="#2DD4BF"/>
+      <text x="90" y="110" fill="#9AA4B6" font-size="11" letter-spacing="1.5" font-weight="600">AUTHORITY</text>
+      <text x="90" y="146" fill="#E6EAF2" font-size="30" font-weight="700" font-family="ui-monospace, monospace">47</text>
+      <text x="150" y="146" fill="#5C6577" font-size="12">VALID</text>
+      <!-- segmented: valid/invalid/incomplete distinct -->
+      <rect x="90" y="158" width="140" height="6" rx="3" fill="#3FB950"/>
+      <rect x="196" y="158" width="18" height="6" rx="3" fill="url(#hatchIncomplete)"/>
+      <rect x="214" y="158" width="9" height="6" rx="3" fill="#F85149"/>
+      <text x="90" y="182" fill="#A371F7" font-size="11" font-family="ui-monospace, monospace">2 INCOMPLETE</text>
+      <text x="192" y="182" fill="#F85149" font-size="11" font-family="ui-monospace, monospace">1 INVALID</text>
+    </g>
+    <!-- 2 EXECUTION -->
+    <g>
+      <rect x="344" y="88" width="256" height="104" rx="8" fill="#121722" stroke="#1F2838" filter="url(#soft)"/>
+      <text x="362" y="110" fill="#9AA4B6" font-size="11" letter-spacing="1.5" font-weight="600">EXECUTION</text>
+      <text x="362" y="146" fill="#E6EAF2" font-size="30" font-weight="700" font-family="ui-monospace, monospace">3</text>
+      <text x="392" y="146" fill="#5C6577" font-size="12">running</text>
+      <text x="362" y="182" fill="#D29922" font-size="11" font-family="ui-monospace, monospace">1 stalled &gt;300s</text>
+      <text x="486" y="182" fill="#8A94A6" font-size="11" font-family="ui-monospace, monospace">12 done/1h</text>
+      <polyline points="470,150 480,146 490,152 500,140 510,148 520,138 530,150 540,132 550,145 560,120 570,140 585,124" fill="none" stroke="#3A4658" stroke-width="1.5"/>
+    </g>
+    <!-- 3 EPISTEMIC -->
+    <g>
+      <rect x="616" y="88" width="256" height="104" rx="8" fill="#121722" stroke="#1F2838" filter="url(#soft)"/>
+      <text x="634" y="110" fill="#9AA4B6" font-size="11" letter-spacing="1.5" font-weight="600">EPISTEMIC</text>
+      <text x="634" y="146" fill="#E6EAF2" font-size="30" font-weight="700" font-family="ui-monospace, monospace">fresh</text>
+      <text x="634" y="182" fill="#D29922" font-size="11" font-family="ui-monospace, monospace">1 contested claim</text>
+      <text x="770" y="182" fill="#8A94A6" font-size="11" font-family="ui-monospace, monospace">0 stale-gold</text>
+    </g>
+    <!-- 4 HEALTH / REACHABILITY -->
+    <g>
+      <rect x="888" y="88" width="256" height="104" rx="8" fill="#121722" stroke="#1F2838" filter="url(#soft)"/>
+      <text x="906" y="110" fill="#9AA4B6" font-size="11" letter-spacing="1.5" font-weight="600">HEALTH · REACHABILITY</text>
+      <text x="906" y="146" fill="#E6EAF2" font-size="30" font-weight="700" font-family="ui-monospace, monospace">4/5</text>
+      <text x="966" y="146" fill="#5C6577" font-size="12">reachable</text>
+      <text x="906" y="182" fill="#F85149" font-size="11" font-family="ui-monospace, monospace">1 unreachable · node-e</text>
+    </g>
+    <!-- 5 PROJECTION FRESHNESS / COMPLETENESS -->
+    <g>
+      <rect x="1160" y="88" width="256" height="104" rx="8" fill="#121722" stroke="#1F2838" filter="url(#soft)"/>
+      <text x="1178" y="110" fill="#9AA4B6" font-size="11" letter-spacing="1.5" font-weight="600">PROJECTION FRESHNESS</text>
+      <text x="1178" y="146" fill="#E6EAF2" font-size="30" font-weight="700" font-family="ui-monospace, monospace">99.4%</text>
+      <text x="1178" y="182" fill="#A371F7" font-size="11" font-family="ui-monospace, monospace">1 partial · attest(node-d)</text>
+      <text x="1300" y="146" fill="#5C6577" font-size="11" font-family="ui-monospace, monospace">3 subs</text>
+    </g>
+  </g>
+
+  <!-- ================= FLEET PANEL (left) — per-node MULTI-CHIP rows ================= -->
+  <!-- online ≠ workload ≠ replication ≠ attestation ≠ trust ≠ cell ≠ quorum -->
+  <rect x="72" y="208" width="800" height="392" rx="8" fill="#0F141E" stroke="#1F2838"/>
+  <text x="88" y="232" fill="#E6EAF2" font-size="13" font-weight="700">FLEET</text>
+  <text x="132" y="232" fill="#5C6577" font-size="11">each cell is its own dimension — a node is never one red/green light</text>
+
+  <!-- column headers over the 7 chips -->
+  <g font-size="9.5" fill="#5C6577" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.5">
+    <text x="278" y="262">RCH</text>
+    <text x="366" y="262">WKL</text>
+    <text x="454" y="262">REP</text>
+    <text x="542" y="262">ATT</text>
+    <text x="630" y="262">TRU</text>
+    <text x="718" y="262">CEL</text>
+    <text x="806" y="262">QRM</text>
+  </g>
+  <text x="88" y="262" fill="#5C6577" font-size="9.5" font-family="ui-monospace, monospace" letter-spacing="0.5">NODE</text>
+  <rect x="88" y="270" width="768" height="1" fill="#1B2333"/>
+
+  <!-- ROW BUILDER: name (x88..228), chips start 236 w84 gap4 -->
+  <!-- chip glyph: ● ok green / ◐ warn amber / ✕ crit red / ▨ incomplete violet-hatch / ○ ineligible grey-outline / · stale grey-dot -->
+
+  <!-- Row 1: node-b -->
+  <g font-family="ui-monospace, monospace" font-size="10">
+    <text x="88" y="298" fill="#E6EAF2" font-size="12" font-weight="600">node-b</text>
+    <text x="88" y="312" fill="#4B5568" font-size="9">canonical writer</text>
+    <!-- chips -->
+    <g>
+      <rect x="236" y="286" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="248" cy="299" r="3.5" fill="#3FB950"/><text x="258" y="303" fill="#7FD79A">online</text>
+      <rect x="324" y="286" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="336" cy="299" r="3.5" fill="#3FB950"/><text x="346" y="303" fill="#7FD79A">healthy</text>
+      <rect x="412" y="286" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="424" cy="299" r="3.5" fill="#3FB950"/><text x="434" y="303" fill="#7FD79A">writer</text>
+      <rect x="500" y="286" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="512" cy="299" r="3.5" fill="#3FB950"/><text x="522" y="303" fill="#7FD79A">strong</text>
+      <rect x="588" y="286" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="600" cy="299" r="3.5" fill="#3FB950"/><text x="610" y="303" fill="#7FD79A">clear</text>
+      <rect x="676" y="286" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="688" cy="299" r="3.5" fill="#3FB950"/><text x="698" y="303" fill="#7FD79A">eligible</text>
+      <rect x="764" y="286" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="776" cy="299" r="3.5" fill="#3FB950"/><text x="786" y="303" fill="#7FD79A">quorum</text>
+    </g>
+  </g>
+
+  <!-- Row 2: node-c -->
+  <g font-family="ui-monospace, monospace" font-size="10">
+    <text x="88" y="342" fill="#E6EAF2" font-size="12" font-weight="600">node-c</text>
+    <text x="88" y="356" fill="#4B5568" font-size="9">broker host · funnel</text>
+    <g>
+      <rect x="236" y="330" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="248" cy="343" r="3.5" fill="#3FB950"/><text x="258" y="347" fill="#7FD79A">online</text>
+      <rect x="324" y="330" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="336" cy="343" r="3.5" fill="#3FB950"/><text x="346" y="347" fill="#7FD79A">healthy</text>
+      <rect x="412" y="330" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="424" cy="343" r="3.5" fill="#3FB950"/><text x="434" y="347" fill="#7FD79A">current</text>
+      <rect x="500" y="330" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="512" cy="343" r="3.5" fill="#3FB950"/><text x="522" y="347" fill="#7FD79A">strong</text>
+      <rect x="588" y="330" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="600" cy="343" r="3.5" fill="#3FB950"/><text x="610" y="347" fill="#7FD79A">clear</text>
+      <rect x="676" y="330" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="688" cy="343" r="3.5" fill="#3FB950"/><text x="698" y="347" fill="#7FD79A">eligible</text>
+      <rect x="764" y="330" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="776" cy="343" r="3.5" fill="#3FB950"/><text x="786" y="347" fill="#7FD79A">quorum</text>
+    </g>
+  </g>
+
+  <!-- Row 3: node-a — REP warn -->
+  <g font-family="ui-monospace, monospace" font-size="10">
+    <text x="88" y="386" fill="#E6EAF2" font-size="12" font-weight="600">node-a</text>
+    <text x="88" y="400" fill="#4B5568" font-size="9">kura ro-replica · GPU</text>
+    <g>
+      <rect x="236" y="374" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="248" cy="387" r="3.5" fill="#3FB950"/><text x="258" y="391" fill="#7FD79A">online</text>
+      <rect x="324" y="374" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="336" cy="387" r="3.5" fill="#3FB950"/><text x="346" y="391" fill="#7FD79A">healthy</text>
+      <rect x="412" y="374" width="84" height="26" rx="4" fill="#241d0f" stroke="#4a3a19"/><path d="M424 384 a3.5 3.5 0 0 1 0 7 z" fill="#D29922"/><circle cx="424" cy="387" r="3.5" fill="none" stroke="#D29922"/><text x="434" y="391" fill="#E0B34A">lag 8s</text>
+      <rect x="500" y="374" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="512" cy="387" r="3.5" fill="#3FB950"/><text x="522" y="391" fill="#7FD79A">strong</text>
+      <rect x="588" y="374" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="600" cy="387" r="3.5" fill="#3FB950"/><text x="610" y="391" fill="#7FD79A">clear</text>
+      <rect x="676" y="374" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="688" cy="387" r="3.5" fill="#3FB950"/><text x="698" y="391" fill="#7FD79A">eligible</text>
+      <rect x="764" y="374" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="776" cy="387" r="3.5" fill="#3FB950"/><text x="786" y="391" fill="#7FD79A">quorum</text>
+    </g>
+  </g>
+
+  <!-- Row 4: node-d — ONLINE but ATT incomplete, WKL warn, CEL ineligible (the money shot) -->
+  <g font-family="ui-monospace, monospace" font-size="10">
+    <text x="88" y="430" fill="#E6EAF2" font-size="12" font-weight="600">node-d</text>
+    <text x="88" y="444" fill="#4B5568" font-size="9">replica · online≠well</text>
+    <g>
+      <rect x="236" y="418" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="248" cy="431" r="3.5" fill="#3FB950"/><text x="258" y="435" fill="#7FD79A">online</text>
+      <rect x="324" y="418" width="84" height="26" rx="4" fill="#241d0f" stroke="#4a3a19"/><circle cx="336" cy="431" r="3.5" fill="none" stroke="#D29922"/><path d="M336 427.5 a3.5 3.5 0 0 1 0 7 z" fill="#D29922"/><text x="346" y="435" fill="#E0B34A">q:41 bklg</text>
+      <rect x="412" y="418" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="424" cy="431" r="3.5" fill="#3FB950"/><text x="434" y="435" fill="#7FD79A">current</text>
+      <rect x="500" y="418" width="84" height="26" rx="4" fill="url(#hatchIncomplete)" stroke="#5a3fa0"/><text x="512" y="435" fill="#CBB6F5" font-weight="700">▨ incompl</text>
+      <rect x="588" y="418" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="600" cy="431" r="3.5" fill="#3FB950"/><text x="610" y="435" fill="#7FD79A">clear</text>
+      <rect x="676" y="418" width="84" height="26" rx="4" fill="#14181f" stroke="#2A3346"/><circle cx="688" cy="431" r="3.5" fill="none" stroke="#6E7681"/><text x="698" y="435" fill="#8A94A6">inelig</text>
+      <rect x="764" y="418" width="84" height="26" rx="4" fill="#122016" stroke="#1f3a26"/><circle cx="776" cy="431" r="3.5" fill="#3FB950"/><text x="786" y="435" fill="#7FD79A">quorum</text>
+    </g>
+  </g>
+
+  <!-- Row 5: node-e — UNREACHABLE → downstream projections go STALE, not green, not failed -->
+  <g font-family="ui-monospace, monospace" font-size="10">
+    <text x="88" y="474" fill="#E6EAF2" font-size="12" font-weight="600">node-e</text>
+    <text x="88" y="488" fill="#4B5568" font-size="9">WSL · unreach 3m12s</text>
+    <g>
+      <rect x="236" y="462" width="84" height="26" rx="4" fill="#211012" stroke="#4a1f1f"/><text x="248" y="479" fill="#F85149" font-weight="700">✕</text><text x="262" y="479" fill="#F0837C">offline</text>
+      <!-- once unreachable, other cells are STALE (freshness dimension), not asserted -->
+      <rect x="324" y="462" width="84" height="26" rx="4" fill="url(#hatchStale)" stroke="#2A3346"/><text x="336" y="479" fill="#6E7681">· stale</text>
+      <rect x="412" y="462" width="84" height="26" rx="4" fill="#14181f" stroke="#2A3346"/><text x="424" y="479" fill="#6E7681">n/a</text>
+      <rect x="500" y="462" width="84" height="26" rx="4" fill="url(#hatchStale)" stroke="#2A3346"/><text x="512" y="479" fill="#6E7681">· stale</text>
+      <rect x="588" y="462" width="84" height="26" rx="4" fill="url(#hatchStale)" stroke="#2A3346"/><text x="600" y="479" fill="#6E7681">· stale</text>
+      <rect x="676" y="462" width="84" height="26" rx="4" fill="#14181f" stroke="#2A3346"/><circle cx="688" cy="475" r="3.5" fill="none" stroke="#6E7681"/><text x="698" y="479" fill="#8A94A6">inelig</text>
+      <rect x="764" y="462" width="84" height="26" rx="4" fill="#14181f" stroke="#2A3346"/><text x="776" y="479" fill="#6E7681">n/a</text>
+    </g>
+  </g>
+
+  <!-- fleet footnote -->
+  <rect x="88" y="504" width="768" height="1" fill="#1B2333"/>
+  <text x="88" y="524" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">node-e row: reachability=CRIT does NOT paint the other cells red — they read <tspan fill="#8A94A6">STALE</tspan> (freshness), never asserted as ok/fail.</text>
+  <text x="88" y="542" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">node-d row: <tspan fill="#7FD79A">online</tspan> yet <tspan fill="#CBB6F5">attestation INCOMPLETE</tspan> + <tspan fill="#8A94A6">Cell-ineligible</tspan> — "up" is one dimension of seven.</text>
+  <text x="88" y="576" fill="#4B5568" font-size="9.5" font-family="ui-monospace, monospace">column bindings TBD → keystone/#51 · panel reads fleet_node projection family</text>
+
+  <!-- ================= AUTHORITY / PROOF PANEL (right) ================= -->
+  <rect x="888" y="208" width="528" height="392" rx="8" fill="#0F141E" stroke="#1F2838"/>
+  <text x="904" y="232" fill="#E6EAF2" font-size="13" font-weight="700">AUTHORITY · PROOF</text>
+  <text x="1010" y="232" fill="#5C6577" font-size="11">three-state verifier — INCOMPLETE is first-class</text>
+
+  <!-- focused op header -->
+  <text x="904" y="262" fill="#6E7A8C" font-size="10" letter-spacing="1" font-family="ui-monospace, monospace">FOCUSED OP</text>
+  <text x="904" y="282" fill="#E6EAF2" font-size="14" font-family="ui-monospace, monospace">kura.publish.refresh <tspan fill="#4B5568">@node-b→node-a</tspan></text>
+
+  <!-- BIG verdict = INCOMPLETE, first-class hatch treatment, NOT a spinner -->
+  <rect x="904" y="296" width="496" height="72" rx="8" fill="url(#hatchIncomplete)" stroke="#6D4FB8" stroke-width="1.5"/>
+  <text x="924" y="326" fill="#CBB6F5" font-size="22" font-weight="800" letter-spacing="1" font-family="ui-monospace, monospace">INCOMPLETE</text>
+  <text x="924" y="348" fill="#B49BE8" font-size="11" font-family="ui-monospace, monospace">verifier lacks inputs — this is a terminal state, not "loading"</text>
+  <text x="924" y="362" fill="#9A82D0" font-size="10.5" font-family="ui-monospace, monospace">missing: attestation(node-d) stale · scope-relation unresolved</text>
+  <rect x="1330" y="312" width="56" height="40" rx="6" fill="#1c1630" stroke="#6D4FB8"/>
+  <text x="1358" y="330" fill="#CBB6F5" font-size="9" text-anchor="middle" font-family="ui-monospace, monospace">inputs</text>
+  <text x="1358" y="345" fill="#E6EAF2" font-size="14" text-anchor="middle" font-weight="700" font-family="ui-monospace, monospace">3/5</text>
+
+  <!-- FOUR STANDING AXES, each rendered as its OWN dimension row -->
+  <text x="904" y="392" fill="#6E7A8C" font-size="10" letter-spacing="1" font-family="ui-monospace, monospace">STANDING AXES (separate — never one bit)</text>
+  <g font-family="ui-monospace, monospace" font-size="11">
+    <!-- authority_standing -->
+    <rect x="904" y="400" width="242" height="30" rx="5" fill="#101722" stroke="#1F2838"/>
+    <text x="916" y="419" fill="#9AA4B6">authority_standing</text>
+    <circle cx="1112" cy="415" r="4" fill="#3FB950"/><text x="1122" y="419" fill="#7FD79A">VALID</text>
+    <!-- effect_standing -->
+    <rect x="1158" y="400" width="242" height="30" rx="5" fill="#101722" stroke="#1F2838"/>
+    <text x="1170" y="419" fill="#9AA4B6">effect_standing</text>
+    <rect x="1350" y="408" width="14" height="14" rx="3" fill="url(#hatchIncomplete)"/><text x="1368" y="419" fill="#CBB6F5">INCMP</text>
+    <!-- consumption_standing -->
+    <rect x="904" y="436" width="242" height="30" rx="5" fill="#101722" stroke="#1F2838"/>
+    <text x="916" y="455" fill="#9AA4B6">consumption_standing</text>
+    <circle cx="1112" cy="451" r="4" fill="#3FB950"/><text x="1122" y="455" fill="#7FD79A">VALID</text>
+    <!-- epistemic_standing -->
+    <rect x="1158" y="436" width="242" height="30" rx="5" fill="#101722" stroke="#1F2838"/>
+    <text x="1170" y="455" fill="#9AA4B6">epistemic_standing</text>
+    <circle cx="1360" cy="451" r="4" fill="#D29922"/><text x="1370" y="455" fill="#E0B34A">WEAK</text>
+  </g>
+
+  <!-- RELATIONS row (occurrence / execution / scope / outcome) -->
+  <text x="904" y="490" fill="#6E7A8C" font-size="10" letter-spacing="1" font-family="ui-monospace, monospace">RELATIONS</text>
+  <g font-family="ui-monospace, monospace" font-size="10.5">
+    <rect x="904" y="498" width="118" height="26" rx="5" fill="#101722" stroke="#1F2838"/><text x="916" y="515" fill="#8A94A6">occurrence <tspan fill="#7FD79A">✓</tspan></text>
+    <rect x="1030" y="498" width="118" height="26" rx="5" fill="#101722" stroke="#1F2838"/><text x="1042" y="515" fill="#8A94A6">execution <tspan fill="#7FD79A">✓</tspan></text>
+    <rect x="1156" y="498" width="118" height="26" rx="5" fill="#1c1630" stroke="#4a3a70"/><text x="1168" y="515" fill="#B49BE8">scope <tspan>?</tspan></text>
+    <rect x="1282" y="498" width="118" height="26" rx="5" fill="#101722" stroke="#1F2838"/><text x="1294" y="515" fill="#8A94A6">outcome <tspan fill="#6E7681">—</tspan></text>
+  </g>
+
+  <!-- other recent verdicts: one VALID, one INVALID — to show all three states present -->
+  <rect x="904" y="536" width="496" height="1" fill="#1B2333"/>
+  <g font-family="ui-monospace, monospace" font-size="11">
+    <circle cx="912" cy="558" r="4" fill="#3FB950"/><text x="924" y="562" fill="#C9D2E0">deploy.fanout@v1.79.2</text><text x="1300" y="562" fill="#7FD79A" text-anchor="end">VALID</text><text x="1392" y="562" fill="#5C6577" text-anchor="end">·3 hops</text>
+    <rect x="908" y="572" width="8" height="8" rx="1.5" fill="#F85149"/><text x="924" y="580" fill="#C9D2E0">rollback.force@node-a</text><text x="1300" y="580" fill="#F0837C" text-anchor="end">INVALID</text><text x="1392" y="580" fill="#5C6577" text-anchor="end">writer-uniq</text>
+  </g>
+  <text x="904" y="596" fill="#4B5568" font-size="9.5" font-family="ui-monospace, monospace">bindings TBD → agent/consistency §5.1 · reads authority_proof projection</text>
+
+  <!-- ================= BOTTOM LEFT: GRAPH / DECISION LINEAGE (projection, not truth) ================= -->
+  <rect x="72" y="616" width="800" height="256" rx="8" fill="#0F141E" stroke="#1F2838"/>
+  <text x="88" y="640" fill="#E6EAF2" font-size="13" font-weight="700">KNOWLEDGE GRAPH · DECISION LINEAGE</text>
+  <text x="272" y="640" fill="#A371F7" font-size="11">projection, not truth</text>
+  <!-- legend: event-derived (solid) vs inferred (dashed) MUST be visually distinct -->
+  <line x1="620" y1="636" x2="650" y2="636" stroke="#7FA9F0" stroke-width="2"/>
+  <text x="656" y="640" fill="#8A94A6" font-size="10" font-family="ui-monospace, monospace">event-derived</text>
+  <line x1="748" y1="636" x2="778" y2="636" stroke="#6E7681" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="784" y="640" fill="#8A94A6" font-size="10" font-family="ui-monospace, monospace">inferred</text>
+
+  <!-- mini decision-lineage DAG -->
+  <g font-family="ui-monospace, monospace" font-size="10">
+    <!-- nodes -->
+    <line x1="180" y1="700" x2="330" y2="700" stroke="#7FA9F0" stroke-width="2"/>
+    <line x1="410" y1="700" x2="560" y2="720" stroke="#7FA9F0" stroke-width="2"/>
+    <line x1="410" y1="700" x2="560" y2="770" stroke="#6E7681" stroke-width="2" stroke-dasharray="4 3"/>
+    <line x1="180" y1="800" x2="330" y2="770" stroke="#6E7681" stroke-width="2" stroke-dasharray="4 3"/>
+
+    <rect x="110" y="686" width="140" height="30" rx="5" fill="#101722" stroke="#2A3346"/><text x="122" y="705" fill="#C9D2E0">plan:kura-mesh</text>
+    <rect x="330" y="686" width="140" height="30" rx="5" fill="#101722" stroke="#2A3346"/><text x="342" y="705" fill="#C9D2E0">approve @node-b</text>
+    <rect x="560" y="706" width="150" height="30" rx="5" fill="#101722" stroke="#2A3346"/><text x="572" y="725" fill="#C9D2E0">effect:publish</text>
+    <rect x="560" y="756" width="150" height="30" rx="5" fill="#1a1522" stroke="#4a3a70" stroke-dasharray="4 3"/><text x="572" y="775" fill="#B49BE8">inferred: caused-by</text>
+    <rect x="110" y="786" width="140" height="30" rx="5" fill="#101722" stroke="#2A3346"/><text x="122" y="805" fill="#C9D2E0">obs:lag-8s</text>
+  </g>
+  <text x="88" y="860" fill="#4B5568" font-size="9.5" font-family="ui-monospace, monospace">solid edges from event log · dashed edges are model inference — operator must never mistake projection for ground truth · bindings TBD → keystone/#51</text>
+
+  <!-- ================= BOTTOM RIGHT: MCP / SKILL GROWTH (evidence, NOT authority) ================= -->
+  <rect x="888" y="616" width="528" height="256" rx="8" fill="#0F141E" stroke="#1F2838"/>
+  <text x="904" y="640" fill="#E6EAF2" font-size="13" font-weight="700">MCP · SKILL GROWTH</text>
+  <!-- explicit disclaimer chip -->
+  <rect x="1230" y="626" width="170" height="20" rx="10" fill="#161421" stroke="#3a2f52"/>
+  <text x="1315" y="640" fill="#B49BE8" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">evidence · not authority</text>
+
+  <g font-family="ui-monospace, monospace" font-size="11">
+    <rect x="904" y="658" width="496" height="30" rx="5" fill="#101722" stroke="#1F2838"/>
+    <text x="916" y="677" fill="#C9D2E0">node-b-cc-primary</text>
+    <text x="1120" y="677" fill="#8A94A6" text-anchor="end">+3 skills / 7d</text>
+    <rect x="1140" y="664" width="250" height="8" rx="4" fill="#182234"/><rect x="1140" y="664" width="190" height="8" rx="4" fill="#3A4658"/>
+
+    <rect x="904" y="694" width="496" height="30" rx="5" fill="#101722" stroke="#1F2838"/>
+    <text x="916" y="713" fill="#C9D2E0">node-a-vendor-A</text>
+    <text x="1120" y="713" fill="#8A94A6" text-anchor="end">+1 skill / 7d</text>
+    <rect x="1140" y="700" width="250" height="8" rx="4" fill="#182234"/><rect x="1140" y="700" width="90" height="8" rx="4" fill="#3A4658"/>
+
+    <rect x="904" y="730" width="496" height="30" rx="5" fill="#101722" stroke="#1F2838"/>
+    <text x="916" y="749" fill="#C9D2E0">node-d-cc-2</text>
+    <text x="1120" y="749" fill="#8A94A6" text-anchor="end">+6 skills / 7d</text>
+    <rect x="1140" y="736" width="250" height="8" rx="4" fill="#182234"/><rect x="1140" y="736" width="250" height="8" rx="4" fill="#3A4658"/>
+  </g>
+  <!-- the load-bearing rule, stated on the surface -->
+  <rect x="904" y="778" width="496" height="60" rx="6" fill="#12101a" stroke="#2f2745"/>
+  <text x="918" y="800" fill="#B49BE8" font-size="11" font-family="ui-monospace, monospace">A high growth score never widens what an agent may DO.</text>
+  <text x="918" y="820" fill="#8A94A6" font-size="10.5" font-family="ui-monospace, monospace">Skill score is rendered in the neutral track colour — never in the</text>
+  <text x="918" y="834" fill="#8A94A6" font-size="10.5" font-family="ui-monospace, monospace">severity palette, never the accent. Authority comes from the proof panel only.</text>
+
+  <!-- ================= GLOBAL LEGEND (severity ≠ accent) — bottom hairline ================= -->
+  <text x="72" y="892" fill="#4B5568" font-size="10" font-family="ui-monospace, monospace">SEVERITY (own scale):</text>
+  <circle cx="228" cy="888" r="4" fill="#3FB950"/><text x="238" y="892" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">ok</text>
+  <circle cx="272" cy="888" r="4" fill="#D29922"/><text x="282" y="892" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">warn</text>
+  <rect x="326" y="884" width="8" height="8" rx="1.5" fill="#F85149"/><text x="340" y="892" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">crit</text>
+  <rect x="384" y="884" width="8" height="8" rx="1.5" fill="url(#hatchIncomplete)"/><text x="398" y="892" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">incomplete</text>
+  <rect x="480" y="884" width="8" height="8" rx="1.5" fill="url(#hatchStale)"/><text x="494" y="892" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">stale/unknown</text>
+  <rect x="600" y="884" width="10" height="10" rx="2" fill="#2DD4BF"/><text x="616" y="892" fill="#5C6577" font-size="10" font-family="ui-monospace, monospace">ACCENT = brand/focus only (carries no status meaning)</text>
+</svg>

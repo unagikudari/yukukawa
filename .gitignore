@@ -1,0 +1,69 @@
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+*.token
+*.secret
+secrets/
+credentials/
+
+# Local identity / SSH
+.ssh/
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# Local inventories and machine-specific configuration
+inventory.local*
+hosts.local*
+*.local.yaml
+*.local.yml
+*.local.json
+*.local.toml
+*.local.ini
+*.local.conf
+local/
+private/
+
+# Runtime / state / databases
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+*.sock
+state/
+data/
+cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build / coverage
+dist/
+build/
+coverage/
+htmlcov/
+.coverage
+*.egg-info/

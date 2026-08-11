@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kawa/prototype/comparison.schema.json",
+  "title": "Kawa F-006 Comparative Prototype Record",
+  "type": "object",
+  "required": ["experiment", "memory_broker_extension", "kawa_greenfield", "decision"],
+  "properties": {
+    "experiment": {
+      "type": "object",
+      "required": ["spec_version", "vertical_slice", "shared_test_revision"],
+      "properties": {
+        "spec_version": {"const": "prototype-vertical-slice-v0.1"},
+        "vertical_slice": {"const": "observation-claim-fact-problem-plan-review-stale-result"},
+        "shared_test_revision": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "memory_broker_extension": {"$ref": "#/$defs/candidate"},
+    "kawa_greenfield": {"$ref": "#/$defs/candidate"},
+    "decision": {
+      "type": "object",
+      "required": ["status", "hard_failures", "rationale", "independent_review"],
+      "properties": {
+        "status": {"enum": ["open", "memory_broker_extension", "kawa_greenfield", "inconclusive"]},
+        "hard_failures": {"type": "array", "items": {"type": "string"}},
+        "rationale": {"type": "string"},
+        "independent_review": {
+          "type": "object",
+          "required": ["completed", "review_ref"],
+          "properties": {
+            "completed": {"type": "boolean"},
+            "review_ref": {"type": ["string", "null"]}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "required": ["implementation", "path_counts", "tests", "scores", "notes", "evidence_refs"],
+      "properties": {
+        "implementation": {
+          "type": "object",
+          "required": ["repository", "ref", "implementation_lines_changed_or_added", "persistent_domain_tables_added_or_modified"],
+          "properties": {
+            "repository": {"type": "string"},
+            "ref": {"type": "string"},
+            "implementation_lines_changed_or_added": {"type": "integer", "minimum": 0},
+            "persistent_domain_tables_added_or_modified": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "path_counts": {
+          "type": "object",
+          "required": ["existing_write_paths_modified", "existing_read_paths_modified", "compatibility_exceptions", "migration_steps", "authority_sources", "domain_write_primitives"],
+          "properties": {
+            "existing_write_paths_modified": {"type": "integer", "minimum": 0},
+            "existing_read_paths_modified": {"type": "integer", "minimum": 0},
+            "compatibility_exceptions": {"type": "integer", "minimum": 0},
+            "migration_steps": {"type": "integer", "minimum": 0},
+            "authority_sources": {"type": "integer", "minimum": 0},
+            "domain_write_primitives": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "tests": {
+          "type": "object",
+          "required": ["projection_rebuild", "stale_write", "scope_isolation", "provenance_spoof", "event_replay_side_effect"],
+          "properties": {
+            "projection_rebuild": {"$ref": "#/$defs/testResult"},
+            "stale_write": {"$ref": "#/$defs/testResult"},
+            "scope_isolation": {"$ref": "#/$defs/testResult"},
+            "provenance_spoof": {"$ref": "#/$defs/testResult"},
+            "event_replay_side_effect": {"$ref": "#/$defs/testResult"}
+          },
+          "additionalProperties": false
+        },
+        "scores": {
+          "type": "object",
+          "required": ["semantic_clarity", "event_only_sot_fidelity", "rebuildability", "single_write_path_fidelity", "security_boundary_clarity", "llm_input_simplicity", "scope_isolation", "stale_write_correctness", "replication_independence", "migration_blast_radius", "rollback_simplicity", "operational_complexity", "legacy_compatibility_burden"],
+          "properties": {
+            "semantic_clarity": {"$ref": "#/$defs/score"},
+            "event_only_sot_fidelity": {"$ref": "#/$defs/score"},
+            "rebuildability": {"$ref": "#/$defs/score"},
+            "single_write_path_fidelity": {"$ref": "#/$defs/score"},
+            "security_boundary_clarity": {"$ref": "#/$defs/score"},
+            "llm_input_simplicity": {"$ref": "#/$defs/score"},
+            "scope_isolation": {"$ref": "#/$defs/score"},
+            "stale_write_correctness": {"$ref": "#/$defs/score"},
+            "replication_independence": {"$ref": "#/$defs/score"},
+            "migration_blast_radius": {"$ref": "#/$defs/score"},
+            "rollback_simplicity": {"$ref": "#/$defs/score"},
+            "operational_complexity": {"$ref": "#/$defs/score"},
+            "legacy_compatibility_burden": {"$ref": "#/$defs/score"}
+          },
+          "additionalProperties": false
+        },
+        "notes": {
+          "type": "object",
+          "required": ["rollback_complexity", "replication_coupling", "operator_burden"],
+          "properties": {
+            "rollback_complexity": {"type": "string"},
+            "replication_coupling": {"type": "string"},
+            "operator_burden": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "testResult": {
+      "type": "object",
+      "required": ["status", "evidence_ref"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "not_run"]},
+        "evidence_ref": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "score": {
+      "type": "object",
+      "required": ["value", "evidence_ref"],
+      "properties": {
+        "value": {"type": "integer", "minimum": 0, "maximum": 5},
+        "evidence_ref": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
