@@ -2,7 +2,50 @@
 
 **Pre-alpha architecture and dogfood development. Not production-ready.**
 
-Kawa is an **event-sourced continuity and authority substrate** for organizations where Humans and AI Agents act over time.
+> **Change the agent. Keep the work.**
+
+Kawa lets Humans and AI Agents continue shared work without depending on one conversation, one model, one runtime, or one machine.
+
+It preserves **what happened, why decisions were made, what evidence supported them, who was allowed to act, and what actually resulted** — so another Human or Agent can safely continue the work.
+
+A typical Kawa workflow looks like this:
+
+```text
+Claude implements a change
+        ↓
+Kawa preserves the Plan, Work, evidence, and Result
+        ↓
+Codex reviews it
+        ↓
+Gemini attacks the assumptions
+        ↓
+the original Agent/runtime disappears
+        ↓
+a different Agent connects to Kawa
+        ↓
+it reconstructs the current situation and continues the available Work
+```
+
+The next participant does not need the original chat transcript to become useful.
+
+### What this means for a user
+
+- **Replace an Agent without losing the work.** Claude, Codex, Gemini, local models, Humans, and runtimes are participants rather than the memory.
+- **See what should happen next.** Plans preserve intent; Work exposes actionable steps.
+- **See why a decision exists.** Evidence, Problems, Plans, Work, Findings, revisions, and Results remain traversable.
+- **Do not treat AI inference as fact.** Observation, Claim, and current Fact are separate.
+- **Do not treat authentication as permission.** Identity, capability, approval, and execution authority are separate.
+- **Do not treat “I ran it” as proof.** Intent, execution, and verified Result are separate.
+- **Keep working through partitions.** Divergent histories are preserved and reconciled rather than silently overwritten.
+- **Inspect what an LLM retrieved before acting.** Semantic Retrieval is designed to keep relevance, freshness, epistemic standing, and selection distinct.
+
+The deeper architecture exists to keep those promises under replacement, failure, disagreement, and partition.
+
+User-facing positioning and onboarding design: [`docs/user-value-and-onboarding-v0.1.md`](docs/user-value-and-onboarding-v0.1.md).
+
+---
+
+Internally, Kawa is an **event-sourced continuity and authority substrate** for organizations where Humans and AI Agents act over time.
 
 > **Actors pass through Kawa. Events remain. Understanding changes.**
 
@@ -90,17 +133,31 @@ CLI sessions and runtimes are disposable. Kawa state carries continuity.
 
 ## Local-first Operator Console
 
-The planned Console exposes multiple independent dimensions rather than collapsing the system into one red/green health bit:
+The repository-native Console is intended to make the user-facing value visible first, while keeping the deeper semantics inspectable.
+
+Current and planned surfaces include:
 
 - Situation
 - Evidence
 - Authority
 - Fleet
 - Runtime / MCP Analysis
+- Semantic Retrieval
 - Capability / Skill Growth
 - Graph / Decision Lineage
 
 Dashboard state is read from local PostgreSQL projections. Graphs are projections, never a second source of truth.
+
+Run the current Console from a live Kawa database:
+
+```bash
+KAWA_DSN=dbname=kawa python scripts/console_serve.py
+# open http://127.0.0.1:8099
+```
+
+A first-run guided overlay tour is planned to explain the real dashboard by highlighting each live UI area with arrows and short callouts. It will be reopenable from a `?` / Help control and capability-aware so it never advertises functionality the running instance does not have.
+
+Onboarding proposal: [Issue #80](https://github.com/unagikudari/kawa/issues/80)
 
 North-star design handoff: [Issue #63](https://github.com/unagikudari/kawa/issues/63)
 
@@ -158,7 +215,7 @@ KAWA_DSN=dbname=kawa pytest -q                      # DB-backed tests run agains
 Boot-verified on a clean checkout (fresh venv → migrations → pytest → **13 passed, 0 skipped**).
 The DB-backed tests **skip** without a database; a genuine boot check requires them to run (zero skips).
 
-### Operator Console (Phase 3)
+### Operator Console
 
 The repository-native Console renders from the **live** `current_*` projections on every request
 (no static snapshot embedded):
@@ -167,8 +224,7 @@ The repository-native Console renders from the **live** `current_*` projections 
 KAWA_DSN=dbname=kawa python scripts/console_serve.py     # then open http://127.0.0.1:8099
 ```
 
-It shows the current plan/work route — including Kawa's own development roadmap — from the disposable
-projections; drop-and-rebuild changes nothing it depends on. Reads only.
+It shows the current plan/work route from disposable projections; drop-and-rebuild changes nothing it depends on. Reads only.
 
 ### Component status (not collapsed to one label)
 
@@ -177,13 +233,12 @@ projections; drop-and-rebuild changes nothing it depends on. Reads only.
 Foundational specs     ✓          ✓          n/a          ✓           —
 Keystone (op/effect)   ✓          ✓          partial      ✓           —
 Phase 0 impl           ✓          ✓          ✓            ✓        ✓ (clean clone)
-Console                ✓        partial       ✗            —           —      (no serving code yet)
-Semantic Retrieval     —          —           ✗           —           —
+Console                ✓        partial       ✓            ✓        ✓ (local)
+Guided onboarding      ✓          —           ✗            —           —
+Semantic Retrieval     ✓          —           ✗            —           —
 ```
 
-Deploying this repository yields the Phase 0 substrate and its tests. It does **not** yet yield a
-Console — the Console is DESIGNED (`docs/console-read-model-v0.1.md`, `docs/design/`) but has no
-serving code.
+The Console exists as repository code and reads the live Kawa database. Guided onboarding and Semantic Retrieval remain planned/not implemented until their code lands in `main`.
 
 ### Document authority
 
@@ -211,7 +266,9 @@ Principle audit proposal: [Issue #62](https://github.com/unagikudari/kawa/issues
 
 ## Current status
 
-Kawa is still in **founding architecture review + Phase 0 dogfood preparation**. Major areas already have active designs or formal review around:
+Kawa is still **pre-alpha**. The repository now contains a runnable Phase 0 substrate and a repository-native local Console, while major distributed/security capabilities remain under active implementation and review.
+
+Major areas already have active designs or formal review around:
 
 - Event-only Source of Truth
 - Subject identity and lineage
@@ -224,19 +281,23 @@ Kawa is still in **founding architecture review + Phase 0 dogfood preparation**.
 - Work / Result / Agent runtime orchestration
 - execution identity, safe retry, and duplicate reconciliation
 - local-first read models and Operator Console
+- Semantic Retrieval observability
 - Memory Broker migration
 
-The active architecture work currently lives primarily on the `agent/specification-v0.2` line and associated RFC / review Issues and PRs. The repository is not yet a production security or authority boundary.
+The repository is not yet a production security or authority boundary.
 
 ## Start here
 
+- User value and onboarding: [`docs/user-value-and-onboarding-v0.1.md`](docs/user-value-and-onboarding-v0.1.md)
+- Guided Console tour: [Issue #80](https://github.com/unagikudari/kawa/issues/80)
+- Implementation roadmap: [Issue #72](https://github.com/unagikudari/kawa/issues/72)
 - Public architecture / adversarial review entrypoint work: [PR #44](https://github.com/unagikudari/kawa/pull/44)
 - Work-driven Agent Runtime: [Issue #53](https://github.com/unagikudari/kawa/issues/53)
 - Memory Broker migration: [Issue #56](https://github.com/unagikudari/kawa/issues/56)
 - Phase 0 implementation stack: [Issue #57](https://github.com/unagikudari/kawa/issues/57)
 - Pre-dogfood semantic risk sweep: [Issue #59](https://github.com/unagikudari/kawa/issues/59)
-- Keystone rev2 risk envelope: [Issue #61](https://github.com/unagikudari/kawa/issues/61)
 - Architecture principle audit: [Issue #62](https://github.com/unagikudari/kawa/issues/62)
+- Semantic Retrieval observability: [Issue #65](https://github.com/unagikudari/kawa/issues/65)
 - Console design north-star: [Issue #63](https://github.com/unagikudari/kawa/issues/63)
 
 ## Project maxim
