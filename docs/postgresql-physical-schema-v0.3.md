@@ -35,33 +35,43 @@ There are no authoritative `projects`, `problems`, `plans`, `claims`, `facts`, o
 ## 3. Common Event envelope
 
 ```sql
+-- Phase-0 realized envelope. This matches sql/0001_event_store.sql (the truth on `main`);
+-- §3.1 lists the designed-but-not-yet-realized fields so subset vs full is explicit.
 CREATE TABLE events (
-    event_id            text PRIMARY KEY,
-    event_type          text NOT NULL,
-
-    subject_ref         text NOT NULL,
-    actor_ref           text,
-    observer_ref        text,
-
-    project_ref         text,
-    origin_node         text NOT NULL,               -- authored-by node; immutable across replication (#25)
-    workload_ref        text NOT NULL,
-
-    occurred_at         timestamptz NOT NULL,
-    recorded_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
-    origin_seq          bigint NOT NULL,              -- per-origin gap-free monotone (#25)
-
-    correlation_id      text,
-    causation_id        text,
-    source_message_id   text,
-
-    schema_version      smallint NOT NULL,
+    event_id        text        PRIMARY KEY,   -- = self_hash: content-addressed identity, NOT an opaque id
+    origin_node     text        NOT NULL,       -- authored-by node; immutable across replication (#25)
+    origin_seq      bigint      NOT NULL,       -- per-origin, gap-free, monotone (#25)
+    hlc             text        NOT NULL,       -- hybrid logical clock; the causal order key (#25 §64), not wall-clock
+    recorded_at     timestamptz NOT NULL DEFAULT clock_timestamp(),   -- local receive stamp, never Domain order
+    kind            text        NOT NULL,       -- the event type (logical `event_type`); typed per-kind payload tables (#57 §6)
+    subject_ref     uuid,                        -- the subject this Event is about (UUIDv7, #28)
+    actor_ref       text        NOT NULL,        -- accountable emitter (attested-from-session, not caller-declared)
+    policy_digest   text,                        -- content-addressed policy in force (③④)
+    payload_digest  text        NOT NULL,        -- digest of the typed payload
+    prev_hash       text,                        -- previous event's self_hash for this origin  (= #25 origin_prev_hash)
+    self_hash       text        NOT NULL,        -- content hash of this event (= #25 content_hash); event_id = self_hash
 
     UNIQUE (origin_node, origin_seq)
 );
 ```
 
 > **Origin identity is independent of storage placement (#25).** `(origin_node, origin_seq)` is the **immutable, node-independent** origin coordinate and replication cursor key: an Event authored on node A keeps `origin_node = A, origin_seq = n` on every node it replicates to, and across dump/restore, reindex, archive, and compaction. It is **not** a local append offset, `BIGSERIAL`, or receiving-node position — no storage-placement value may become Event identity, order, or continuity. The per-origin continuity spine (`origin_prev_hash` / `content_hash` / `hlc` / `scope_ref`) is defined normatively by `event-log-and-replication-v0.1.md` and realized in the Phase-0 `events` table (`prev_hash` / `self_hash` / `hlc`). The replication **frontier** is therefore **per-origin** — conceptually `{ origin_node -> highest contiguous origin_seq held }` — and cannot be faithfully represented by a single scalar cursor once multiple origins exist; a scalar Phase-0 cursor is a single-origin simplification, not the architecture.
+
+### 3.1 Phase-0 subset vs full schema (explicit)
+
+The envelope above is the **Phase-0 realized** set (`sql/0001_event_store.sql`). The following are **designed but NOT in the Phase-0 subset** and MUST NOT be presented as implemented:
+
+```text
+event_type (distinct column) — Phase-0 realizes the logical event type as `kind`
+occurred_at                  — Phase-0 orders by `hlc` (#25 §64), not a wall-clock column
+observer_ref / workload_ref (project_ref is realized in the typed event_plan payload table, not the envelope)
+correlation_id / causation_id / source_message_id — Phase-0 expresses correlation via the typed
+                               event_links table (§5), not envelope columns
+schema_version
+scope_ref                    — #25 authorized-interest replication filter (Phase 4)
+```
+
+Naming map to the #25 canonical continuity spine: `prev_hash` = `origin_prev_hash`, `self_hash` = `content_hash`. **Deliberate Phase-0 deviation from #25:** Phase-0 realizes `event_id = self_hash` (a content-addressed PK). In `event-log-and-replication-v0.1.md` (#25) `event_id` is instead a **time-sortable UUIDv7/ULID** and `content_hash` is a *separate* cross-check field — so #25's time-sortable-`event_id` property is not held by the Phase-0 subset. Unifying the two (a UUIDv7 `event_id` plus a distinct `content_hash`) is deferred; until then this is an explicit subset deviation, not a silent contradiction. Where the consolidated `specification-v0.4.md` uses the logical name `event_type`, the physical column is `kind`; they denote the same concept.
 
 `subject_ref` means exactly the thing the Event is about.
 
