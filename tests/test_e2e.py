@@ -165,3 +165,16 @@ def test_console_renders_from_live_projections(conn) -> None:  # type: ignore[no
     k.record_result("wc", "success", "r-wc")                     # change the live state
     page2 = render_page(conn)
     assert "finished" in page2 and page2 != page1                # re-read reflects it (no snapshot)
+
+
+def test_console_shows_dispatch_from_live_work_dispatch(conn) -> None:  # type: ignore[no-untyped-def]
+    """Phase 3: the Runtime & Dispatch section renders from live work_dispatch (how Work was routed
+    to runtimes/lanes)."""
+    from kawa.adapters import broker_bridge as bridge
+    from kawa.console.render import render_page
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("pd", "kawa", "dispatch")
+    k.derive_work("wd", "pd", "review", role_requirement="Reviewer")
+    bridge.request_review(conn, work_ref="wd", context="ctx", target_agent="vendor-A", transport="broker")
+    page = render_page(conn)
+    assert "Runtime &amp; Dispatch" in page and "vendor-A" in page and "broker" in page

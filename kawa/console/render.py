@@ -37,6 +37,27 @@ def _fetch(conn: psycopg.Connection):
     return plans, work, deps, events, fresh
 
 
+def _dispatch_html(conn: psycopg.Connection) -> str:
+    """Runtime & Dispatch — how Work was routed to runtimes/lanes, from work_dispatch (live)."""
+    from collections import Counter
+    with conn.cursor() as cur:
+        cur.execute("SELECT work_ref, target_agent, transport, dispatch_state FROM work_dispatch "
+                    "WHERE target_agent IS NOT NULL ORDER BY updated_at DESC NULLS LAST, work_ref")
+        rows = cur.fetchall()
+    if not rows:
+        return ""
+    tr = " · ".join(f"{html.escape(t)} {n}" for t, n in sorted(Counter(r[2] for r in rows).items()))
+    trows = "".join(
+        f'<tr><td class="wr">{html.escape(w)}</td><td class="meta">{html.escape(a)}</td>'
+        f'<td><span class="pill">{html.escape(t)}</span></td>'
+        f'<td><span class="st {"done" if st == "completed" else "mut"}">{html.escape(st)}</span></td></tr>'
+        for w, a, t, st in rows)
+    return ('<section class="plan"><h2>Runtime &amp; Dispatch</h2>'
+            f'<p class="obj">how Work was routed to runtimes / lanes — from work_dispatch (live) · {tr}</p>'
+            '<table class="disp"><thead><tr><th>work</th><th>lane (runtime)</th><th>transport</th>'
+            f'<th>state</th></tr></thead><tbody>{trows}</tbody></table></section>')
+
+
 def render_page(conn: psycopg.Connection) -> str:
     plans, work, deps, events, fresh = _fetch(conn)
     by_plan: dict[str, list] = {}
@@ -67,7 +88,7 @@ def render_page(conn: psycopg.Connection) -> str:
         rows.append("</div></section>")
 
     fresh_s = html.escape(str(fresh)[:19]) if fresh else "—"
-    body = "\n".join(rows) or '<p class="mut">No plans yet.</p>'
+    body = ("\n".join(rows) or '<p class="mut">No plans yet.</p>') + _dispatch_html(conn)
     return _TEMPLATE.format(events=events, fresh=fresh_s, body=body, nplans=len(plans), nwork=len(work))
 
 
@@ -93,6 +114,9 @@ font:14px/1.5 ui-sans-serif,system-ui,sans-serif}}
 .st.crit{{color:var(--crit);border-color:var(--crit)}}.st.inc{{color:var(--inc);border-color:var(--inc)}}
 .st.done{{color:var(--done);border-color:var(--done)}}.st.mut{{color:var(--mut);border-color:var(--bd)}}
 .conf{{color:var(--crit)}}.mut{{color:var(--mut)}}
+table.disp{{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}}
+table.disp th{{text-align:left;color:var(--mut);font-weight:500;padding:3px 6px;border-bottom:1px solid var(--bd)}}
+table.disp td{{padding:3px 6px;border-bottom:1px solid var(--bd)}}
 </style></head><body>
 <div class="top"><h1>Kawa Operator Console</h1>
 <span class="mut" style="font-size:12px">live projection · reads current_* every request</span>
