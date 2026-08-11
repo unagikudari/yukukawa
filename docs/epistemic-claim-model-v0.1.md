@@ -126,7 +126,7 @@ The Agent does not supply:
 ```text
 actor_ref / claimant authority
 workload_ref
-node_ref
+origin_node
 claim/Event ID
 Fact ID
 Fact status

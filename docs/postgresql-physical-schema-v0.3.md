@@ -44,12 +44,12 @@ CREATE TABLE events (
     observer_ref        text,
 
     project_ref         text,
-    node_ref            text NOT NULL,
+    origin_node         text NOT NULL,               -- authored-by node; immutable across replication (#25)
     workload_ref        text NOT NULL,
 
     occurred_at         timestamptz NOT NULL,
     recorded_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
-    local_sequence      bigint NOT NULL,
+    origin_seq          bigint NOT NULL,              -- per-origin gap-free monotone (#25)
 
     correlation_id      text,
     causation_id        text,
@@ -57,9 +57,11 @@ CREATE TABLE events (
 
     schema_version      smallint NOT NULL,
 
-    UNIQUE (node_ref, local_sequence)
+    UNIQUE (origin_node, origin_seq)
 );
 ```
+
+> **Origin identity is independent of storage placement (#25).** `(origin_node, origin_seq)` is the **immutable, node-independent** origin coordinate and replication cursor key: an Event authored on node A keeps `origin_node = A, origin_seq = n` on every node it replicates to, and across dump/restore, reindex, archive, and compaction. It is **not** a local append offset, `BIGSERIAL`, or receiving-node position — no storage-placement value may become Event identity, order, or continuity. The per-origin continuity spine (`origin_prev_hash` / `content_hash` / `hlc` / `scope_ref`) is defined normatively by `event-log-and-replication-v0.1.md` and realized in the Phase-0 `events` table (`prev_hash` / `self_hash` / `hlc`). The replication **frontier** is therefore **per-origin** — conceptually `{ origin_node -> highest contiguous origin_seq held }` — and cannot be faithfully represented by a single scalar cursor once multiple origins exist; a scalar Phase-0 cursor is a single-origin simplification, not the architecture.
 
 `subject_ref` means exactly the thing the Event is about.
 

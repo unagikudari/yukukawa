@@ -95,7 +95,7 @@ Node identity answers:
 
 Node identity MUST be established from the registered Node key/credential by trusted infrastructure.
 
-An Agent MUST NOT supply authoritative `node_ref`.
+An Agent MUST NOT supply authoritative `origin_node`.
 
 Node credentials MUST be rotatable and revocable.
 
@@ -311,7 +311,7 @@ Trusted identity/security fields are not caller options.
 An LLM-facing request MUST NOT require or accept authoritative values for:
 
 ```text
-node_ref
+origin_node
 workload_ref
 actor_ref when actor is authenticated Workload
 observer_ref for deterministic collectors

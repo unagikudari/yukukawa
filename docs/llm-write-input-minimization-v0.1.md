@@ -44,10 +44,10 @@ Examples:
 ```text
 actor_ref
 observer_ref
-node_ref
+origin_node
 workload_ref
 recorded_at
-local_sequence
+origin_seq
 schema_version
 correlation_id
 causation_id
@@ -67,7 +67,7 @@ The caller MUST NOT provide authoritative identity fields.
 ```text
 actor_ref
 observer_ref
-node_ref
+origin_node
 workload_ref
 human_principal_ref
 ```
@@ -372,7 +372,7 @@ An Agent cannot set observer_ref for a trusted collector.
 An Agent cannot claim observation_method without executing that method.
 A Plan revision in a unique current Plan context does not require project/plan refs.
 A write in a unique Work context inherits causation automatically.
-recorded_at/local_sequence/schema_version are never required from the Agent.
+recorded_at/origin_seq/schema_version are never required from the Agent.
 Ambiguous target/context returns needs_selection instead of guessing.
 A convenience Skill compiles to canonical Events rather than mutating projections.
 Fact cannot be directly overwritten by an Agent.

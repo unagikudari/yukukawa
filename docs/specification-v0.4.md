@@ -300,11 +300,11 @@ subject_ref
 actor_ref?
 observer_ref?
 project_ref?
-node_ref
+origin_node
 workload_ref
 occurred_at
 recorded_at
-local_sequence
+origin_seq
 correlation_id?
 causation_id?
 source_message_id?
@@ -312,6 +312,8 @@ schema_version
 ```
 
 Relationships live in typed semantic links rather than duplicate family IDs.
+
+`origin_node` / `origin_seq` are the **immutable, node-independent** origin coordinates governed by `event-log-and-replication-v0.1.md` (#25): `(origin_node, origin_seq)` is the replication cursor key, stable across replication / rebuild / compaction / observation on any node — never a local storage position. The replication frontier is **per-origin**, not a scalar `origin_seq`.
 
 The durable physical Core consists conceptually of:
 

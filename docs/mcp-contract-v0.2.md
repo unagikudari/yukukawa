@@ -235,12 +235,12 @@ Observation, Claim, Approval grant, and Result normally use their Event identity
 The public write schema MUST NOT accept authoritative caller values for:
 
 ```text
-node_ref
+origin_node
 workload_ref
 authoritative actor_ref
 authoritative observer_ref
 recorded_at
-local_sequence
+origin_seq
 schema_version
 security timestamps
 approval validity

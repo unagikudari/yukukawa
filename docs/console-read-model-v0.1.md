@@ -59,7 +59,7 @@ CREATE TABLE projection_state (
     schema_version       integer     NOT NULL,
     last_event_id        text,                     -- cursor into the Domain Event log
     last_recorded_at     timestamptz,
-    last_local_sequence  bigint,                   -- local frontier (event-log-and-replication)
+    last_origin_seq      bigint,                   -- single-origin Phase-0 cursor; the architectural frontier is per-origin { origin_node -> contiguous origin_seq } (#25)
     state                text        NOT NULL,
     rebuild_started_at   timestamptz,
     rebuild_completed_at timestamptz,

@@ -48,7 +48,7 @@ Zen: *In the face of ambiguity, refuse the temptation to guess.* If any obligati
 `event_id` and the event's ordering position are assigned **by Emit**, never supplied by the caller. A caller-chosen id is a caller-chosen collision and a caller-chosen order; both are refused inputs, not honored ones. (Closes #14 ordering; supports #12.)
 
 ### 2.2 ATTEST — provenance is stamped, never accepted
-The trusted identity of the write — `node_ref`, `workload_ref`, and, for a collector, `observer_ref` — is derived by Emit from the **authenticated session**, not read from caller-supplied fields. A caller may state *intent* (what to observe, what to claim); it cannot state *who observed* or *which workload wrote*. There is no field on the wire for a caller to declare trusted identity, and no code path that copies caller bytes into an identity column. (Closes #9.)
+The trusted identity of the write — `origin_node`, `workload_ref`, and, for a collector, `observer_ref` — is derived by Emit from the **authenticated session**, not read from caller-supplied fields. A caller may state *intent* (what to observe, what to claim); it cannot state *who observed* or *which workload wrote*. There is no field on the wire for a caller to declare trusted identity, and no code path that copies caller bytes into an identity column. (Closes #9.)
 
 > **The caller requests. The write path attests.** Provenance is established by execution, never claimed by text — and "execution" means this function ran under that session, not that a string said so.
 
@@ -89,10 +89,10 @@ Every event carries a `subject_seq`: a per-`subject_ref`, gap-free, strictly inc
 Where reduction spans subjects (Fact resolution over Observations and Claims about one subject that arrive as distinct events, federation merge), the canonical total order is:
 
 ```text
-(occurred_at ASC, node_ref ASC, local_sequence ASC)
+(occurred_at ASC, origin_node ASC, origin_seq ASC)
 ```
 
-a lexicographic tuple that is total (no two events tie — `(node_ref, local_sequence)` is globally unique) and identical on every node regardless of arrival interleaving. Clock skew changes *nothing* about the result: two nodes replaying the same event set compute the same order and the same Fact. (Closes #12.)
+a lexicographic tuple that is total (no two events tie — `(origin_node, origin_seq)` is globally unique) and identical on every node regardless of arrival interleaving. Clock skew changes *nothing* about the result: two nodes replaying the same event set compute the same order and the same Fact. (Closes #12.)
 
 `occurred_at` is display/causal-intent time and is caller-supplable for historical events; it MUST be ≤ `recorded_at`. It orders, it does not authorize — no basis or approval decision keys on `occurred_at`, only on the log frontier (§2.4).
 
@@ -168,7 +168,7 @@ Emit (§2), SECURITY DEFINER, owned by kawa_owner:
        THEN RETURN conflict;                                            -- §2.4
     event_id := uuidv7();                                              -- §2.1, §4.3
     INSERT INTO events(event_id, subject_seq := frontier+1,            -- §4.1
-                       node_ref := current_node(), workload_ref := auth_workload(),  -- §2.2
+                       origin_node := current_node(), workload_ref := auth_workload(),  -- §2.2
                        occurred_at, recorded_at := clock_timestamp(), ...);
     INSERT INTO event_links(...) for each link;                       -- §2.5 same tx
     -- commit is the caller's tx boundary; all-or-nothing.
@@ -176,7 +176,7 @@ Emit (§2), SECURITY DEFINER, owned by kawa_owner:
 Identity (§4.3)   event_id uuidv7(); UNIQUE(event_id).
                   content_hash column; apply-time (id, content_hash) equality = no-op,
                   id-equal/hash-differ = RAISE (halt+alert), never DO NOTHING.
-Order (§4.2)      UNIQUE(node_ref, local_sequence); index on (occurred_at, node_ref, local_sequence).
+Order (§4.2)      UNIQUE(origin_node, origin_seq); index on (occurred_at, origin_node, origin_seq).
 ```
 
 The advisory lock is transaction-scoped: it releases on commit, rollback, or crash — a crashed Emit holds nothing. The same lock discharges SERIALIZE (§2.3), makes VERIFY↔APPEND gapless (§2.4), and makes `subject_seq` gap-free (§4.1): **three findings, one lock.** That economy is the point — the beautiful version of eight fixes is not eight mechanisms.
