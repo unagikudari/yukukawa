@@ -13,12 +13,13 @@ from kawa.storage.db import connect
 
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
-        path = self.path.split("?", 1)[0]
+        from urllib.parse import parse_qs
+        path, _, qs = self.path.partition("?")
         if path == "/index.html":
             path = "/"
         try:
             with connect() as conn:            # a fresh read per request; projections are live
-                page = render(conn, path)
+                page = render(conn, path, parse_qs(qs) if qs else None)
         except Exception as exc:  # pragma: no cover - surfaced to the operator, never a blank page
             # ASCII reason phrase (HTTP status line is latin-1); detail goes in the utf-8 body.
             self.send_error(500, "projection read failed", str(exc))

@@ -87,10 +87,59 @@ def _screen_planned(conn: psycopg.Connection) -> str:
             'It will render from the live read-model when built; no mock data is shown.</p></section>')
 
 
+def _screen_search(conn: psycopg.Connection, query: dict | None = None) -> str:
+    """Narrow harness over kawa.retrieval.retrieve (#100): renders the bundle WITH its
+    provenance and frontiers. No stable external schema — the step-6 MCP surface replaces
+    this with no compatibility promise."""
+    from kawa.retrieval import Intent, retrieve
+    q = (query or {})
+    about, text = q.get("about", [""])[0].strip(), q.get("q", [""])[0].strip()
+    form = ('<section class="card"><h2>Search (SQL-first, structure before similarity)</h2>'
+            '<form method="get" action="/search">'
+            f'<input name="about" placeholder="ref (event id / plan_ref / work_ref)" value="{html.escape(about)}" size="44"> '
+            f'<input name="q" placeholder="text terms" value="{html.escape(text)}" size="28"> '
+            '<button type="submit">retrieve</button></form></section>')
+    if not about and not text:
+        return form
+    bundle = retrieve(conn, Intent(about=about or None, text_terms=text or None))
+    p = bundle.plan
+    parts = [form, '<section class="card"><h2>Retrieval plan (provenance header)</h2><p class="obj">'
+             + html.escape(f"anchor={p.bound.anchor_kind or '—'} textual={p.bound.unbound_text is not None} | "
+                           + ", ".join(f"{qc.class_id}[{qc.backend} b={qc.budget}"
+                                       + (f" {qc.fts_reason}" if qc.fts_reason else "") + "]"
+                                       for qc in p.query_classes)) + "</p></section>"]
+    for class_id, records in bundle.sections.items():
+        rows = "".join(
+            f"<tr><td>{html.escape(r.kind)}</td><td>{html.escape(r.summary[:100])}</td>"
+            f"<td>{html.escape(r.standing or '—')}</td><td class=\"obj\">{html.escape(r.path[:110])}"
+            + (" <b>[truncated]</b>" if r.path_truncated else "") + "</td></tr>"
+            for r in records)
+        parts.append(f'<section class="card"><h2>{html.escape(class_id)} ({len(records)})</h2>'
+                     '<table class="disp"><thead><tr><th>kind</th><th>record</th><th>standing</th>'
+                     f'<th>via</th></tr></thead><tbody>{rows}</tbody></table></section>')
+    notes = []
+    if bundle.empty_classes:
+        notes.append("ran empty: " + ", ".join(bundle.empty_classes))
+    if bundle.skipped_classes:
+        notes.append("deferred, not fired: " + ", ".join(bundle.skipped_classes))
+    if bundle.traversal_frontier:
+        reasons = Counter(f.reason for f in bundle.traversal_frontier)
+        notes.append("not expanded: " + ", ".join(f"{k}×{v}" for k, v in sorted(reasons.items())))
+    if bundle.unresolved_frontier:
+        notes.append(f"unresolved links (targets not held): {len(bundle.unresolved_frontier)}")
+    if bundle.fts_queries:
+        notes.append("fts: " + "; ".join(bundle.fts_queries))
+    if notes:
+        parts.append('<section class="card"><h2>Not retrieved / how retrieved</h2><p class="obj">'
+                     + html.escape(" · ".join(notes)) + "</p></section>")
+    return "".join(parts)
+
+
 # path, sidebar label, screen fn, implemented? — the ONE place screens & sidebar are defined.
 SCREENS = [
     ("/", "Route", _screen_route, True),
     ("/dispatch", "Dispatch", _screen_dispatch, True),
+    ("/search", "Search", _screen_search, True),
     ("/fleet", "Fleet", _screen_planned, False),
     ("/graph", "Graph", _screen_planned, False),
     ("/authority", "Authority", _screen_planned, False),
@@ -120,14 +169,15 @@ def _sidebar(active_path: str) -> str:
     return '<nav class="side"><div class="brand">Kawa</div>' + "".join(items) + "</nav>"
 
 
-def render(conn: psycopg.Connection, path: str = "/") -> str | None:
+def render(conn: psycopg.Connection, path: str = "/", query: dict | None = None) -> str | None:
     """Render the page for `path`, or None if the path is not a known screen (404)."""
     entry = _BY_PATH.get(path)
     if entry is None:
         return None
     label, fn, _impl = entry
     events, nplans, nwork, fresh = _header_stats(conn)
-    return _TEMPLATE.format(active=html.escape(label), sidebar=_sidebar(path), content=fn(conn),
+    content = fn(conn, query) if fn is _screen_search else fn(conn)
+    return _TEMPLATE.format(active=html.escape(label), sidebar=_sidebar(path), content=content,
                             nplans=nplans, nwork=nwork, events=events, fresh=fresh)
 
 
