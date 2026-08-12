@@ -288,6 +288,14 @@ The repository is not yet a production security or authority boundary.
 
 ## Start here
 
+> **Current position & next work — query Kawa, do not read it from this static list.** Kawa holds
+> its own development plan: the `plan-roadmap` Plan is the phase map, and the current phase's
+> detail plan (e.g. `plan-node-trust`) holds the next actionable Work. Ask Kawa
+> (`work.next(role)`) or open the Operator Console (`KAWA_DSN=dbname=kawa python
+> scripts/console_serve.py`). *Actors pass through Kawa; the current position lives in Kawa, not
+> in prose that goes stale.* The links below are durable entry points, not the live position.
+
+
 - User value and onboarding: [`docs/user-value-and-onboarding-v0.1.md`](docs/user-value-and-onboarding-v0.1.md)
 - Guided Console tour: [Issue #80](https://github.com/unagikudari/kawa/issues/80)
 - Implementation roadmap: [Issue #72](https://github.com/unagikudari/kawa/issues/72)
