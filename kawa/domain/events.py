@@ -8,7 +8,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from kawa.domain.ids import digest, event_hash
 
@@ -22,6 +22,7 @@ class EventKind(str, Enum):
     LINK_ASSERTED = "link.asserted"
     OBSERVATION_RECORDED = "observation.recorded"
     CLAIM_RECORDED = "claim.recorded"
+    WORK_RETIRED = "work.retired"
 
 
 # v0.5 §5 semantic relations + the two coordination relations 0001 carried.
@@ -39,6 +40,18 @@ class _Payload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)  # fail-loud: no stray fields (#57 §6)
 
 
+def _drop_unset_step4_keys(d: dict, keys: tuple[str, ...]) -> dict:
+    """Set-only dump for fields added AFTER events already existed (#102 round-2 constraint 2):
+    payload_digest is computed over model_dump INCLUDING null keys, so a new field that dumped
+    `null` would silently change the re-derived digest of every stored event. New keys therefore
+    appear only when non-None; pre-step-4 fields keep their exact historical dump shape
+    (explicitly writing null into these new fields is not a supported form)."""
+    for key in keys:
+        if d.get(key) is None:
+            d.pop(key, None)
+    return d
+
+
 class PlanCreated(_Payload):
     kind: Literal[EventKind.PLAN_CREATED] = EventKind.PLAN_CREATED
     plan_ref: str
@@ -46,6 +59,15 @@ class PlanCreated(_Payload):
     objective: str
     rationale: str | None = None
     lifecycle: Literal["draft", "reviewing", "ready", "running", "blocked", "ended"] = "draft"
+    # §6.1 structured intent (step 4, additive). scope is display/summary text — NON-semantic:
+    # it enters no identity, dependency, or renderer-basis computation (#102 §6).
+    scope: str | None = None
+    constraints: list[str] | None = None
+    expected_observations: list[str] | None = None       # deliberately not expected_result (§6.1)
+
+    @model_serializer(mode="wrap")
+    def _ser(self, handler):  # type: ignore[no-untyped-def]
+        return _drop_unset_step4_keys(handler(self), ("scope", "constraints", "expected_observations"))
 
 
 class PlanLifecycleChanged(_Payload):
@@ -62,6 +84,26 @@ class WorkDerived(_Payload):
     work_kind: str
     role_requirement: str | None = None
     subject_ref: str | None = None
+    # §6.2/§8 structured Work contract (step 4, additive; same set-only dump rule)
+    objective: str | None = None
+    constraints: list[str] | None = None
+    expected_observations: list[str] | None = None
+
+    @model_serializer(mode="wrap")
+    def _ser(self, handler):  # type: ignore[no-untyped-def]
+        return _drop_unset_step4_keys(handler(self), ("objective", "constraints", "expected_observations"))
+
+
+class WorkRetired(_Payload):
+    """#93: the third terminal — an attributed, intentional withdrawal. Neither success nor
+    failure; fabricates no Result. Terminal for the Work identity: un-retiring does not
+    exist (a plan revision derives a NEW work_ref). Late Results stay recorded but are
+    inert for projections (#102 rev 2 precedence rule)."""
+
+    kind: Literal[EventKind.WORK_RETIRED] = EventKind.WORK_RETIRED
+    work_ref: str
+    reason: Literal["superseded", "cancelled", "obsolete"]
+    note: str | None = None
 
 
 class WorkDependencyDeclared(_Payload):
@@ -142,7 +184,7 @@ class ClaimRecorded(_Payload):
 
 Payload = Annotated[
     Union[PlanCreated, PlanLifecycleChanged, WorkDerived, WorkDependencyDeclared, ResultRecorded,
-          LinkAsserted, ObservationRecorded, ClaimRecorded],
+          LinkAsserted, ObservationRecorded, ClaimRecorded, WorkRetired],
     Field(discriminator="kind"),
 ]
 

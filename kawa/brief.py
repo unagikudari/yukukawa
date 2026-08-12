@@ -21,6 +21,11 @@ def bootstrap(conn: psycopg.Connection) -> dict:
         as_of = cur.fetchone()[0]
         cur.execute("SELECT plan_ref, objective FROM current_plans WHERE lifecycle='running' ORDER BY plan_ref")
         open_plans = [{"plan_ref": r[0], "objective": r[1]} for r in cur.fetchall()]
+        # §6.3 plan progress: a read-time aggregate, never a stored percentage
+        for p in open_plans:
+            cur.execute("SELECT execution, count(*) FROM current_work WHERE plan_ref=%s "
+                        "GROUP BY execution ORDER BY execution", (p["plan_ref"],))
+            p["progress"] = {state: n for state, n in cur.fetchall()}
         # the roadmap phase map, if present (plan-roadmap is the convention for the top-level plan)
         cur.execute("SELECT work_ref, execution FROM current_work WHERE plan_ref='plan-roadmap' ORDER BY work_ref")
         roadmap = [{"work_ref": r[0], "execution": r[1]} for r in cur.fetchall()]
@@ -42,7 +47,12 @@ def render(b: dict) -> str:
     """A readable orientation from `bootstrap()` — for a human, a CLI, or an MCP text response."""
     lines = [f"Kawa — context bootstrap  ({b['events']} events, as-of {b['as_of'] or '—'})", ""]
     lines.append("Where we are (open plans):")
-    lines += [f"  {p['plan_ref']} — {p['objective']}" for p in b["open_plans"]] or ["  (none running)"]
+    for p in b["open_plans"]:
+        prog = p.get("progress") or {}
+        summary = ", ".join(f"{n} {state}" for state, n in sorted(prog.items())) or "no work yet"
+        lines.append(f"  {p['plan_ref']} — {p['objective']}  [{summary}]")
+    if not b["open_plans"]:
+        lines.append("  (none running)")
     if b["roadmap"]:
         lines += ["", "Roadmap position:"]
         lines += [f"  {w['execution']:9s} {w['work_ref']}" for w in b["roadmap"]]

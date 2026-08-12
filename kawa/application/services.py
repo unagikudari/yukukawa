@@ -6,8 +6,6 @@ This is the surface the #53 dogfood loop and the #56 compatibility adapter sit o
 """
 from __future__ import annotations
 
-from typing import TypedDict
-
 import psycopg
 
 from kawa.domain.events import (
@@ -21,17 +19,11 @@ from kawa.domain.events import (
     ResultRecorded,
     WorkDependencyDeclared,
     WorkDerived,
+    WorkRetired,
 )
 from kawa.projections.reducers import reduce
 from kawa.storage.emit import Emitter
 from kawa.domain.identity import IdentityContext
-
-
-class WorkItem(TypedDict):
-    work_ref: str
-    plan_ref: str
-    work_kind: str
-    role_requirement: str | None
 
 
 class Kawa:
@@ -48,10 +40,13 @@ class Kawa:
 
     # ---- writes ----
     def create_plan(self, plan_ref: str, project_ref: str, objective: str,
-                    rationale: str | None = None) -> Event:
+                    rationale: str | None = None, scope: str | None = None,
+                    constraints: list[str] | None = None,
+                    expected_observations: list[str] | None = None) -> Event:
         return self._emit_reduce(
             PlanCreated(plan_ref=plan_ref, project_ref=project_ref, objective=objective,
-                        rationale=rationale)
+                        rationale=rationale, scope=scope, constraints=constraints,
+                        expected_observations=expected_observations)
         )
 
     def set_plan_lifecycle(self, plan_ref: str, lifecycle: str,
@@ -61,10 +56,21 @@ class Kawa:
         )
 
     def derive_work(self, work_ref: str, plan_ref: str, work_kind: str,
-                    role_requirement: str | None = None, subject_ref: str | None = None) -> Event:
+                    role_requirement: str | None = None, subject_ref: str | None = None,
+                    objective: str | None = None, constraints: list[str] | None = None,
+                    expected_observations: list[str] | None = None) -> Event:
         return self._emit_reduce(
             WorkDerived(work_ref=work_ref, plan_ref=plan_ref, work_kind=work_kind,
-                        role_requirement=role_requirement, subject_ref=subject_ref)
+                        role_requirement=role_requirement, subject_ref=subject_ref,
+                        objective=objective, constraints=constraints,
+                        expected_observations=expected_observations)
+        )
+
+    def retire_work(self, work_ref: str, reason: str, note: str | None = None) -> Event:
+        """#93: intentional withdrawal — the third terminal. Fabricates no Result; terminal
+        for this work_ref (a plan revision derives a NEW ref instead of un-retiring)."""
+        return self._emit_reduce(
+            WorkRetired(work_ref=work_ref, reason=reason, note=note)  # type: ignore[arg-type]
         )
 
     def declare_dependency(self, work_ref: str, dependency_work_ref: str,
@@ -115,22 +121,64 @@ class Kawa:
         return row[0] if row else None
 
     # ---- reads (from projections) ----
-    def work_next(self, role: str | None = None) -> WorkItem | None:
-        """The next actionable Work: execution='ready', FIFO by ready_at. Results make Work
-        actionable (#53) — this never blocks on another agent, only on evidence."""
-        sql = ("SELECT work_ref, plan_ref, work_kind, role_requirement FROM current_work "
-               "WHERE execution='ready'")
+    def work_next(self, role: str | None = None) -> dict | None:
+        """The next actionable Work as a structured contract + JIT instruction (v0.5 §8).
+        execution='ready', FIFO by ready_at; role_requirement is a FILTER here, never a
+        readiness input. The instruction is rendered on read from typed fields only
+        (kawa.application.jit) and is never persisted; instruction_basis.consumed lists
+        the event ids of the projection rows the render read."""
+        from kawa.application.jit import RENDERER_VERSION, RenderInput, render_instruction
+        # LATERAL picks exactly ONE event_work row per work (the latest derive, by causal
+        # order) — the same work_ref can carry several WorkDerived events (re-derive is
+        # legal and exists in the dogfood log), and a bare JOIN would multiply rows.
+        sql = ("SELECT w.work_ref, w.plan_ref, w.work_kind, w.role_requirement, "
+               "ew.objective, ew.constraints, ew.expected_observations, "
+               "w.latest_event_id, p.objective, p.latest_event_id "
+               "FROM current_work w "
+               "JOIN current_plans p ON p.plan_ref = w.plan_ref "
+               "LEFT JOIN LATERAL ("
+               "  SELECT e2.objective, e2.constraints, e2.expected_observations "
+               "  FROM event_work e2 JOIN events ev ON ev.event_id = e2.event_id "
+               "  WHERE e2.work_ref = w.work_ref "
+               "  ORDER BY split_part(ev.hlc,'.',1)::bigint DESC, "
+               "           split_part(ev.hlc,'.',2)::bigint DESC, ev.origin_node DESC "
+               "  LIMIT 1) ew ON true "
+               "WHERE w.execution='ready'")
         params: list[str] = []
         if role is not None:
-            sql += " AND role_requirement=%s"
+            sql += " AND w.role_requirement=%s"
             params.append(role)
-        sql += " ORDER BY ready_at NULLS LAST, work_ref LIMIT 1"
+        sql += " ORDER BY w.ready_at NULLS LAST, w.work_ref LIMIT 1"
         with self.conn.cursor() as cur:
             cur.execute(sql, params)
             row = cur.fetchone()
         if row is None:
             return None
-        return WorkItem(work_ref=row[0], plan_ref=row[1], work_kind=row[2], role_requirement=row[3])
+        (work_ref, plan_ref, work_kind, role_req, objective, cons, eobs,
+         w_event, plan_obj, p_event) = row
+        inp = RenderInput(work_ref=work_ref, plan_ref=plan_ref, work_kind=work_kind,
+                          role_requirement=role_req, objective=objective,
+                          constraints=tuple(cons) if cons else None,
+                          expected_observations=tuple(eobs) if eobs else None,
+                          plan_objective=plan_obj)
+        return {
+            "work": {"work_ref": work_ref, "plan_ref": plan_ref, "work_kind": work_kind,
+                     "role_requirement": role_req, "objective": objective,
+                     "constraints": list(cons) if cons else None,
+                     "expected_observations": list(eobs) if eobs else None},
+            "instruction": render_instruction(inp),
+            "instruction_basis": {"plan_ref": plan_ref, "work_ref": work_ref,
+                                  "consumed": [w_event, p_event],
+                                  "renderer_version": RENDERER_VERSION},
+        }
+
+    def plan_progress(self, plan_ref: str) -> dict[str, int]:
+        """§6.3: progress is a read-time projection over the Work DAG — never a stored
+        percentage. Counts by execution state (incl. 'retired' as its own bucket)."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT execution, count(*) FROM current_work WHERE plan_ref=%s "
+                        "GROUP BY execution ORDER BY execution", (plan_ref,))
+            return {state: n for state, n in cur.fetchall()}
 
     def work_state(self, work_ref: str) -> str | None:
         with self.conn.cursor() as cur:

@@ -22,7 +22,8 @@
     "approval.granted",
     "approval.revoked",
     "result.recorded",
-    "link.asserted"
+    "link.asserted",
+    "work.retired"
   ],
   "non_event_dotted_allow": [
     "plan.ready",
@@ -51,7 +52,12 @@
     "cnf.jkt",
     "app.sanctioned_copy_token",
     "link.*",
-    "v0.5"
+    "v0.5",
+    "work.derived",
+    "work.dependency_declared",
+    "plan.created",
+    "plan.lifecycle_changed",
+    "work.*"
   ],
   "event_catalog_docs": [
     "event-taxonomy-v0.2.md",

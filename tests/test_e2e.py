@@ -22,7 +22,7 @@ psycopg = pytest.importorskip("psycopg")
 
 _ALL = (
     "events, event_links, event_link, event_observation, event_claim, event_plan, "
-    "event_work, event_work_dependency, event_result, current_claim_standing, "
+    "event_work, event_work_dependency, event_work_retired, event_result, current_claim_standing, "
     "current_plans, current_work, current_work_dependency, runtime_work_occupancy"
 )
 
@@ -61,13 +61,14 @@ def test_result_driven_readiness_loop(conn) -> None:  # type: ignore[no-untyped-
     assert k.work_state("impl") == "ready"
     assert k.work_state("review") == "blocked"           # blocked on evidence, not on an agent
 
-    assert k.work_next("Implementer") == {"work_ref": "impl", "plan_ref": "p1",
-                                          "work_kind": "implement", "role_requirement": "Implementer"}
+    nxt = k.work_next("Implementer")
+    assert nxt is not None and nxt["work"]["work_ref"] == "impl" and nxt["work"]["plan_ref"] == "p1"
+    assert "instruction" in nxt and nxt["instruction_basis"]["renderer_version"]
     assert k.work_next("Reviewer") is None               # nothing ready for reviewer yet
 
     k.record_result("impl", "success", "r-impl")
     assert k.work_state("review") == "ready"             # Result unblocked the dependent Work
-    assert k.work_next("Reviewer") is not None and k.work_next("Reviewer")["work_ref"] == "review"
+    assert k.work_next("Reviewer") is not None and k.work_next("Reviewer")["work"]["work_ref"] == "review"
 
     k.record_result("review", "success", "r-review")
     assert k.work_state("review") == "finished"
@@ -150,14 +151,14 @@ def test_agent_replacement_resumes_from_kawa_state(conn) -> None:  # type: ignor
     # Runtime B — brand new, no prior context — discovers the actionable Work from durable state.
     b = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="runtime-b", actor_ref="agent-b"))
     nxt = b.work_next("Implementer")
-    assert nxt is not None and nxt["work_ref"] == "build"     # resumed purely from Kawa state
+    assert nxt is not None and nxt["work"]["work_ref"] == "build"     # resumed purely from Kawa state
     b.record_result("build", "success", "r-build")
     del b  # runtime B gone mid-workflow
 
     # Runtime C — also new — picks up the now-unblocked downstream Work. Result, not a message, routed it.
     c = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="runtime-c", actor_ref="agent-c"))
     nxt = c.work_next("Reviewer")
-    assert nxt is not None and nxt["work_ref"] == "check"     # continuity survived two runtime losses
+    assert nxt is not None and nxt["work"]["work_ref"] == "check"     # continuity survived two runtime losses
     c.record_result("check", "success", "r-check")
     assert c.work_state("check") == "finished"
 

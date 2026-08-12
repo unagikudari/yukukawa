@@ -19,6 +19,7 @@ from kawa.domain.events import (
     ResultRecorded,
     WorkDependencyDeclared,
     WorkDerived,
+    WorkRetired,
 )
 
 # outcome (of a dependency's Result) → dependency_state. This map IS the dependency
@@ -84,22 +85,55 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
             "dependency_state) VALUES (%s,%s,%s,'pending') ON CONFLICT DO NOTHING",
             (p.work_ref, p.dependency_work_ref, p.satisfaction_policy),
         )
-        # #87: a dependency on a Work whose Result already exists resolves NOW, from the
-        # same predicate the Result path applies — never deadlocks at 'pending'.
-        _apply_latest_result_to_dependents(cur, p.dependency_work_ref, event.event_id,
-                                           only_dependent=p.work_ref)
+        # #102 round-2 constraint 1: a NEW dependency on an already-retired Work resolves to
+        # 'retired' immediately — past Results are irrelevant (retirement dominates), and
+        # without this the edge would hang at 'pending' forever or resurrect via old Results.
+        cur.execute("SELECT execution FROM current_work WHERE work_ref=%s", (p.dependency_work_ref,))
+        row = cur.fetchone()
+        if row is not None and row[0] == "retired":
+            cur.execute(
+                "UPDATE current_work_dependency SET dependency_state='retired', "
+                "updated_at=clock_timestamp() WHERE work_ref=%s AND dependency_work_ref=%s",
+                (p.work_ref, p.dependency_work_ref),
+            )
+        else:
+            # #87: a dependency on a Work whose Result already exists resolves NOW, from the
+            # same predicate the Result path applies — never deadlocks at 'pending'.
+            _apply_latest_result_to_dependents(cur, p.dependency_work_ref, event.event_id,
+                                               only_dependent=p.work_ref)
         _recompute_readiness(cur, p.work_ref, event.event_id)
     elif isinstance(p, ResultRecorded):
         # Both the work's own state and its dependents' dependency_state follow the LATEST
         # Result (pure predicate — replay-order independent even for late-arriving results).
+        # Retirement dominates (#102): a Result for a retired Work stays recorded in the log
+        # but is inert for projections — own-exec stays 'retired', dependents stay 'retired'.
         cur.execute(_LATEST_RESULT_SQL, (p.work_ref,))
         outcome, result_ref = cur.fetchone()  # at least this event's own row exists
         cur.execute(
             "UPDATE current_work SET execution=%s, latest_event_id=%s, updated_at=clock_timestamp() "
-            "WHERE work_ref=%s",
+            "WHERE work_ref=%s AND execution <> 'retired'",
             (_OWN_EXEC[outcome], event.event_id, p.work_ref),
         )
         _apply_latest_result_to_dependents(cur, p.work_ref, event.event_id)
+        cur.execute(
+            "SELECT DISTINCT work_ref FROM current_work_dependency WHERE dependency_work_ref=%s",
+            (p.work_ref,),
+        )
+        for (dependent_ref,) in cur.fetchall():
+            _recompute_readiness(cur, dependent_ref, event.event_id)
+    elif isinstance(p, WorkRetired):
+        # Terminal for the Work identity: overwrites whatever came before, and nothing
+        # (including later Results) overwrites it back. Both event orders converge.
+        cur.execute(
+            "UPDATE current_work SET execution='retired', latest_event_id=%s, "
+            "updated_at=clock_timestamp() WHERE work_ref=%s",
+            (event.event_id, p.work_ref),
+        )
+        cur.execute(
+            "UPDATE current_work_dependency SET dependency_state='retired', "
+            "updated_at=clock_timestamp() WHERE dependency_work_ref=%s",
+            (p.work_ref,),
+        )
         cur.execute(
             "SELECT DISTINCT work_ref FROM current_work_dependency WHERE dependency_work_ref=%s",
             (p.work_ref,),
@@ -141,8 +175,10 @@ def _apply_latest_result_to_dependents(cur: psycopg.Cursor, work_ref: str, event
     if row is None:
         return
     outcome, result_ref = row
+    # retirement dominates: a 'retired' edge is never overwritten by Result-derived state
     sql = ("UPDATE current_work_dependency SET dependency_state=%s, result_ref=%s, "
-           "updated_at=clock_timestamp() WHERE dependency_work_ref=%s")
+           "updated_at=clock_timestamp() WHERE dependency_work_ref=%s "
+           "AND dependency_state <> 'retired'")
     params: list = [_DEP_STATE[outcome], result_ref, work_ref]
     if only_dependent is not None:
         sql += " AND work_ref=%s"
@@ -220,15 +256,22 @@ def _recompute_readiness(cur: psycopg.Cursor, work_ref: str, event_id: str) -> N
     resolved = sum(1 for _, s in rows if s in ("satisfied", "conflicted"))
     conflicted = sum(1 for _, s in rows if s == "conflicted")
     has_failed = any(s == "failed" for _, s in rows)
+    # #102: retired is a SEPARATE branch, never funneled through has_failed — "blocked by an
+    # intentional withdrawal" and "blocked by a failure" must stay distinguishable downstream.
+    # Both block; when both exist, retired takes display precedence (the withdrawal explains
+    # the block; a retry cannot fix it) — the dependency rows keep the full distinction.
+    has_retired = any(s == "retired" for _, s in rows)
     policy = rows[0][0] if rows else "ALL"
 
     if total == 0:
         execution = "ready"
-    elif has_failed:
+    elif policy == "ANY":
+        # ANY means any one satisfied alternative suffices — a retired (or failed) sibling
+        # must not block a path that already resolved (#102 review point d).
+        execution = "ready" if resolved >= 1 else "blocked"
+    elif has_retired or has_failed:
         execution = "blocked"
-    elif policy == "ALL" and resolved == total:
-        execution = "ready"
-    elif policy == "ANY" and resolved >= 1:
+    elif resolved == total:
         execution = "ready"
     else:
         execution = "blocked"
@@ -237,7 +280,8 @@ def _recompute_readiness(cur: psycopg.Cursor, work_ref: str, event_id: str) -> N
         "UPDATE current_work SET dependency_total=%s, dependency_satisfied=%s, "
         "dependency_conflicted=%s, execution=%s, "
         "ready_at = CASE WHEN %s THEN clock_timestamp() ELSE NULL END, "
-        "latest_event_id=%s, updated_at=clock_timestamp() WHERE work_ref=%s",
+        "latest_event_id=%s, updated_at=clock_timestamp() WHERE work_ref=%s "
+        "AND execution <> 'retired'",
         (total, resolved, conflicted, execution, execution == "ready", event_id, work_ref),
     )
 
@@ -271,24 +315,28 @@ def load_events(conn: psycopg.Connection) -> list[Event]:
 def _load_payload(cur: psycopg.Cursor, event_id: str, kind: str) -> Payload:
     if kind == EventKind.PLAN_CREATED.value:
         cur.execute(
-            "SELECT plan_ref, project_ref, objective, rationale, lifecycle FROM event_plan WHERE event_id=%s",
+            "SELECT plan_ref, project_ref, objective, rationale, lifecycle, scope, constraints, "
+            "expected_observations FROM event_plan WHERE event_id=%s",
             (event_id,),
         )
-        plan_ref, project_ref, objective, rationale, lifecycle = cur.fetchone()
+        plan_ref, project_ref, objective, rationale, lifecycle, scope, cons, eobs = cur.fetchone()
         return PlanCreated(plan_ref=plan_ref, project_ref=project_ref, objective=objective,
-                           rationale=rationale, lifecycle=lifecycle)
+                           rationale=rationale, lifecycle=lifecycle, scope=scope,
+                           constraints=cons, expected_observations=eobs)
     if kind == EventKind.PLAN_LIFECYCLE_CHANGED.value:
         cur.execute("SELECT plan_ref, lifecycle, end_reason FROM event_plan WHERE event_id=%s", (event_id,))
         plan_ref, lifecycle, end_reason = cur.fetchone()
         return PlanLifecycleChanged(plan_ref=plan_ref, lifecycle=lifecycle, end_reason=end_reason)
     if kind == EventKind.WORK_DERIVED.value:
         cur.execute(
-            "SELECT work_ref, plan_ref, work_kind, role_requirement, subject_ref FROM event_work WHERE event_id=%s",
+            "SELECT work_ref, plan_ref, work_kind, role_requirement, subject_ref, objective, "
+            "constraints, expected_observations FROM event_work WHERE event_id=%s",
             (event_id,),
         )
-        work_ref, plan_ref, work_kind, role, subj = cur.fetchone()
+        work_ref, plan_ref, work_kind, role, subj, obj, cons, eobs = cur.fetchone()
         return WorkDerived(work_ref=work_ref, plan_ref=plan_ref, work_kind=work_kind,
-                           role_requirement=role, subject_ref=str(subj) if subj else None)
+                           role_requirement=role, subject_ref=str(subj) if subj else None,
+                           objective=obj, constraints=cons, expected_observations=eobs)
     if kind == EventKind.WORK_DEPENDENCY_DECLARED.value:
         cur.execute(
             "SELECT work_ref, dependency_work_ref, satisfaction_policy FROM event_work_dependency WHERE event_id=%s",
@@ -319,6 +367,10 @@ def _load_payload(cur: psycopg.Cursor, event_id: str, kind: str) -> Payload:
         cur.execute("SELECT proposition, basis_note FROM event_claim WHERE event_id=%s", (event_id,))
         proposition, basis_note = cur.fetchone()
         return ClaimRecorded(proposition=proposition, basis_note=basis_note)
+    if kind == EventKind.WORK_RETIRED.value:
+        cur.execute("SELECT work_ref, reason, note FROM event_work_retired WHERE event_id=%s", (event_id,))
+        work_ref, reason, note = cur.fetchone()
+        return WorkRetired(work_ref=work_ref, reason=reason, note=note)
     raise RuntimeError(f"no payload loader for kind={kind}")
 
 
