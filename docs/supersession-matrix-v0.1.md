@@ -47,6 +47,7 @@ event-log-and-replication-v0.1.md
 emit-enforcement-contract-v0.1.md
 security-model-v0.1.md
 identity-credential-lifecycle-v0.1.md
+identity-credential-lifecycle-v0.2.md  (Phase-0 realized addendum, #104)
 scope-resolution-v0.1.md
 approval-binding-v0.1.md
 stale-write-guard-v0.1.md

@@ -1305,6 +1305,7 @@ event-taxonomy-v0.2.md
 git-plan-workspace-v0.1.md
 github-workflow-integration-v0.1.md
 identity-credential-lifecycle-v0.1.md
+identity-credential-lifecycle-v0.2.md
 llm-write-input-minimization-v0.1.md
 mcp-contract-v0.2.md
 memory-broker-architecture-evidence-v0.1.md
