@@ -205,15 +205,21 @@ Then, from a clean clone:
 ```bash
 python3 -m venv .venv && . .venv/bin/activate      # use python3; venv also avoids PEP-668 errors
 pip install -e '.[dev]'                            # pydantic, psycopg[binary]; dev adds pytest, mypy
-createdb kawa                                      # a local database named 'kawa'
+createdb kawa                                      # the RUNTIME database (event log, console, dogfood)
+createdb kawa_test_a                               # the TEST database — pytest TRUNCATEs it every test
 cp .env.example .env                               # edit if your DSN differs
 export KAWA_DSN=dbname=kawa
 python scripts/apply_migrations.py                 # applies sql/0001..NNNN in order, stop-on-error
-KAWA_DSN=dbname=kawa pytest -q                      # DB-backed tests run against that database
+KAWA_DSN=dbname=kawa_test_a python scripts/apply_migrations.py
+pytest -q                                          # DB-backed tests use kawa_test_a (KAWA_TEST_DSN_A)
 ```
 
-Boot-verified on a clean checkout (fresh venv → migrations → pytest → **13 passed, 0 skipped**).
+Boot-verified on a clean checkout (fresh venv → migrations → pytest → **all passed, 0 skipped**).
 The DB-backed tests **skip** without a database; a genuine boot check requires them to run (zero skips).
+
+> **Never point tests at the runtime database.** The test fixtures TRUNCATE their target, so they
+> read only `KAWA_TEST_DSN_A` (default `dbname=kawa_test_a`) and ignore `KAWA_DSN` — the runtime
+> DSN cannot select the fixture target even by accident.
 
 ### Operator Console
 

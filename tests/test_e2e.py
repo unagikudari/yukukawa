@@ -1,8 +1,16 @@
-"""Phase 0 end-to-end integration test — requires the local `kawa` database.
+"""Phase 0 end-to-end integration test — requires the dedicated TEST database `kawa_test_a`.
 
 Skips cleanly if the DB is unavailable, so `pytest` stays green in environments without it.
+
+The fixture TRUNCATEs its target, so it must NEVER be pointed at the runtime/dogfood database:
+it deliberately ignores `KAWA_DSN` (the runtime DSN) and connects via `KAWA_TEST_DSN_A` with a
+`kawa_test_a` default. The dogfood log on this repo's own nodes already carries `origin_node=test`
+scar tissue from the era when this fixture followed `KAWA_DSN` — that mistake is why this seam is
+now a separate variable, not a convention.
 """
 from __future__ import annotations
+
+import os
 
 import pytest
 
@@ -20,11 +28,11 @@ _ALL = (
 
 @pytest.fixture()
 def conn():  # type: ignore[no-untyped-def]
-    from kawa.storage.db import connect
     try:
-        c = connect()
+        c = psycopg.connect(os.environ.get("KAWA_TEST_DSN_A", "dbname=kawa_test_a"),
+                            autocommit=False)
     except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"kawa DB unavailable: {exc}")
+        pytest.skip(f"kawa test DB unavailable: {exc}")
     with c.cursor() as cur:
         cur.execute(f"TRUNCATE {_ALL}")
     c.commit()
