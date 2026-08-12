@@ -1,8 +1,13 @@
 """Bridge test — the request context and the FULL result live durably in Kawa (the #56/#59 win).
 
-Skips if the local `kawa` DB is unavailable.
+Skips if the dedicated TEST database `kawa_test_a` is unavailable. Like test_e2e, the fixture
+TRUNCATEs — so it reads only KAWA_TEST_DSN_A and ignores KAWA_DSN (the runtime DSN). This file
+was the hole #91 missed: on 2026-08-12 a plain `pytest` run reached this fixture with no KAWA_DSN
+set and truncated the live dogfood log. Every DB-touching test fixture must use this seam.
 """
 from __future__ import annotations
+
+import os
 
 import pytest
 
@@ -10,7 +15,7 @@ from kawa.adapters import broker_bridge as bridge
 from kawa.application.services import Kawa
 from kawa.domain.identity import IdentityContext
 
-pytest.importorskip("psycopg")
+psycopg = pytest.importorskip("psycopg")
 
 _ALL = (
     "events, event_links, event_plan, event_work, event_work_dependency, event_result, "
@@ -20,11 +25,11 @@ _ALL = (
 
 @pytest.fixture()
 def conn():  # type: ignore[no-untyped-def]
-    from kawa.storage.db import connect
     try:
-        c = connect()
+        c = psycopg.connect(os.environ.get("KAWA_TEST_DSN_A", "dbname=kawa_test_a"),
+                            autocommit=False)
     except Exception as exc:  # pragma: no cover
-        pytest.skip(f"kawa DB unavailable: {exc}")
+        pytest.skip(f"kawa test DB unavailable: {exc}")
     with c.cursor() as cur:
         cur.execute(f"TRUNCATE {_ALL}")
     c.commit()
