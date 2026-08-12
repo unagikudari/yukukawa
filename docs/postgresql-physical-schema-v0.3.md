@@ -65,7 +65,7 @@ CREATE TABLE events (
 The envelope above is the **Phase-0 realized** set (`sql/0001_event_store.sql`). The following are **designed but NOT in the Phase-0 subset** and MUST NOT be presented as implemented:
 
 ```text
-event_type (distinct column) — Phase-0 realizes the logical event type as `kind`
+event_type (distinct column) — retired alias; the canonical logical AND physical name is `kind`
 occurred_at                  — Phase-0 orders by `hlc` (#25 §64), not a wall-clock column
 observer_ref / workload_ref (project_ref is realized in the typed event_plan payload table, not the envelope)
 correlation_id / causation_id / source_message_id — Phase-0 expresses correlation via the typed
@@ -76,7 +76,7 @@ scope_ref                    — #25 authorized-interest replication filter (Pha
 
 **Provenance ≠ identity ≠ trust (Phase 4A).** `signature` is a signature over the canonical `content_hash` (= `self_hash`); it is **not** the Event identity (`event_id = content_hash` is unchanged) and is NOT fed into the hash. `signing_key_ref` names which key signed so a key registry resolves the *historical* public key — rotation/revocation of the current key does not break verification of past Events. `signature_scheme` is a mechanics/profile string (e.g. `ed25519`), deliberately not a constrained Domain enum. A valid signature proves **cryptographic provenance** ("bound to this key"), which is **separate from current trust standing** (policy / revocation / key lineage, evaluated by ③④). Verification failure fails closed at admission / replication — never accepted as unknown. NULL columns = an unattested write, recorded honestly.
 
-Naming map to the #25 canonical continuity spine: `prev_hash` = `origin_prev_hash`, `self_hash` = `content_hash`. **Deliberate Phase-0 deviation from #25:** Phase-0 realizes `event_id = self_hash` (a content-addressed PK). In `event-log-and-replication-v0.1.md` (#25) `event_id` is instead a **time-sortable UUIDv7/ULID** and `content_hash` is a *separate* cross-check field — so #25's time-sortable-`event_id` property is not held by the Phase-0 subset. Unifying the two (a UUIDv7 `event_id` plus a distinct `content_hash`) is deferred; until then this is an explicit subset deviation, not a silent contradiction. Where the consolidated `specification-v0.4.md` uses the logical name `event_type`, the physical column is `kind`; they denote the same concept.
+Naming map to the #25 canonical continuity spine: `prev_hash` = `origin_prev_hash`, `self_hash` = `content_hash`. **Reconciled (2026-08-12, roadmap step 0):** `event_id = content_hash` is now the *canonical* identity in `event-log-and-replication-v0.1.md` as well — the former #25 requirement of a time-sortable UUIDv7/ULID `event_id` is retired (time ordering is the HLC's job, #25 §3; `subject_ref` keeps UUIDv7 where time-sortable minting matters). The #71 deviation is closed: this table IS the contract's realized form. The canonical name of the event-type column is **`kind`**, logically and physically; `event_type` (used by `specification-v0.4.md` and older drafts) is a retired alias for the same concept.
 
 `subject_ref` means exactly the thing the Event is about.
 
@@ -448,8 +448,8 @@ CREATE INDEX events_project_recorded_idx
 CREATE INDEX events_subject_recorded_idx
     ON events (subject_ref, recorded_at DESC);
 
-CREATE INDEX events_type_recorded_idx
-    ON events (event_type, recorded_at DESC);
+CREATE INDEX events_kind_recorded_idx
+    ON events (kind, recorded_at DESC);
 
 CREATE INDEX events_causation_idx
     ON events (causation_id)

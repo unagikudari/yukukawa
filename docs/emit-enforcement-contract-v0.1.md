@@ -97,7 +97,7 @@ a lexicographic tuple that is total (no two events tie — `(origin_node, origin
 `occurred_at` is display/causal-intent time and is caller-supplable for historical events; it MUST be ≤ `recorded_at`. It orders, it does not authorize — no basis or approval decision keys on `occurred_at`, only on the log frontier (§2.4).
 
 ### 4.3 Replication and identity
-`event_id` MUST be collision-free **by construction** — a time-ordered, node-entropied scheme (§7 selects UUIDv7). Replication apply INSERTs events directly (§3 permits this). On the vanishing chance of an apply-time id clash:
+`event_id` MUST be collision-free **by construction** — content-addressed: `event_id = content_hash` over the canonical envelope+payload (`event-log-and-replication §1`; 2026-08-12 step-0 revision, was UUIDv7). Identity and integrity are one coordinate: two distinct events cannot share an id without a hash collision. Replication apply INSERTs events directly (§3 permits this). On the vanishing chance of an apply-time id clash:
 
 ```text
 same id, byte-equal content   → idempotent no-op (safe re-delivery).
@@ -166,16 +166,16 @@ Emit (§2), SECURITY DEFINER, owned by kawa_owner:
     frontier := (SELECT max(subject_seq) FROM events WHERE subject_ref = $);
     IF basis is state-dependent AND basis.frontier <> frontier
        THEN RETURN conflict;                                            -- §2.4
-    event_id := uuidv7();                                              -- §2.1, §4.3
+    event_id := content_hash(envelope, payload);                       -- §2.1, §4.3
     INSERT INTO events(event_id, subject_seq := frontier+1,            -- §4.1
                        origin_node := current_node(), workload_ref := auth_workload(),  -- §2.2
                        occurred_at, recorded_at := clock_timestamp(), ...);
     INSERT INTO event_links(...) for each link;                       -- §2.5 same tx
     -- commit is the caller's tx boundary; all-or-nothing.
 
-Identity (§4.3)   event_id uuidv7(); UNIQUE(event_id).
-                  content_hash column; apply-time (id, content_hash) equality = no-op,
-                  id-equal/hash-differ = RAISE (halt+alert), never DO NOTHING.
+Identity (§4.3)   event_id = content_hash; UNIQUE(event_id).
+                  apply-time same-id re-delivery = no-op; a differing event at an
+                  already-held origin position = RAISE (halt+alert), never DO NOTHING.
 Order (§4.2)      UNIQUE(origin_node, origin_seq); index on (occurred_at, origin_node, origin_seq).
 ```
 

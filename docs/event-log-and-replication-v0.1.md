@@ -1,6 +1,7 @@
 # Kawa Event Log and Peer Replication v0.1
 
 Status: Draft, normative candidate — the core data structure and how peers replicate it
+Revision note (2026-08-12, roadmap step 0): `event_id` unified with `content_hash` (was UUIDv7/ULID) — closes the deviation `postgresql-physical-schema-v0.3` §"naming map" carried as deferred (#71); the implemented envelope (sql/0001, Phases 0–4C) is the realized form.
 Scope: The shape of a durable Event, the per-node log, and the replication model that lets nodes join and leave without reconfiguring the fleet.
 Supersedes (mechanism): full-mesh PostgreSQL logical replication as the propagation mechanism.
 Companions: `emit-enforcement-contract-v0.1.md` (the write that produces these rows), `postgresql-physical-schema-v0.3.md` (local storage), `event-taxonomy-v0.2.md`.
@@ -21,17 +22,17 @@ Every durable Event carries this envelope. The payload and semantic links hang o
 
 | Field | Set by | Purpose |
 |---|---|---|
-| `event_id` | Emit | Globally unique, collision-free, time-sortable id (UUIDv7 / ULID). Node-independent. Content-addressed cross-check via `content_hash`. |
+| `event_id` | Emit | **Content-addressed identity: `event_id = content_hash`.** Globally unique, collision-*detecting*, and tamper-evident by construction; node-independent. Time ordering is NOT an id property — it comes from `hlc` (§3). (`subject_ref` keeps UUIDv7 where time-sortable minting matters.) |
 | `origin_node` | Emit (attested) | The one node that authored this event. An event has exactly one origin, forever. |
 | `origin_seq` | Emit | Per-`origin_node`, **gap-free**, strictly increasing. `(origin_node, origin_seq)` is the **replication cursor key** and a second globally-unique natural key. |
-| `origin_prev_hash` | Emit | `content_hash` of this origin's previous event. Forms a **per-origin hash chain**. |
-| `content_hash` | Emit | Hash over the canonical envelope+payload. Integrity, dedup, and collision detection. |
+| `origin_prev_hash` | Emit | `content_hash` of this origin's previous event. Forms a **per-origin hash chain**. Impl name: `prev_hash`. |
+| `content_hash` | Emit | Hash over the canonical envelope+payload; **is** the Event identity (`event_id = content_hash`) and the value `origin_prev_hash` chains on. Integrity, dedup, and collision detection in one coordinate. Impl name: `self_hash`. |
 | `hlc` | Emit | Hybrid Logical Clock `(physical, counter)` — the **causal** timestamp (§3). |
 | `subject_ref` | caller intent | The semantic subject the event is about (§2). |
 | `subject_seq` | Emit | Per-`subject_ref` position **as seen by this origin** (§2.2 — not globally gap-free). |
-| `event_type` | caller intent | Domain event type. |
+| `kind` | caller intent | Domain event kind (canonical name; `event_type` is a retired alias). |
 | `actor_ref` / `observer_ref` / `workload_ref` | Emit (attested) | Provenance, stamped from the authenticated session (`emit-enforcement §2.2`). |
-| `scope_ref` | caller intent / inferred | Project/scope, for **scoped replication** (§5) and authorization. |
+| `scope_ref` | caller intent / inferred | Project/scope, for **scoped replication** (§5) and authorization. DESIGNED, not yet physical: adding it to the hashed envelope requires envelope versioning (old events' hashes lack it), so it lands with selective materialization (spec-v0.5 §12, roadmap step 9) — until then replication is unscoped. |
 | `occurred_at` / `recorded_at` | caller / Emit | Wall-clock, for display and audit only. **Never authoritative for order** (§3). |
 | `causation_id` / `correlation_id` | caller / inferred | Causal and workflow links. |
 | `payload` / `links` | caller intent | Typed event body and semantic links, appended atomically (`emit-enforcement §2.5`). |
@@ -91,7 +92,7 @@ Replication is pull-based epidemic (gossip) anti-entropy:
 
 - **Fanout, not full mesh.** A talks to a few peers; events propagate epidemically to all interested nodes. Each node maintains `O(fanout)` peer links, not `O(N)` subscriptions.
 - **Chain-verified completeness.** A missing event shows as an `origin_prev_hash` that does not chain — a gap is detectable, not silent.
-- **Idempotent.** Re-delivery of an event already held (same `event_id` and `content_hash`) is a no-op; same id with a different hash is a detected collision → halt+alert (`emit-enforcement §4.3`), never a silent drop.
+- **Idempotent.** Re-delivery of an event already held (same `event_id`, which *is* the `content_hash`) is a no-op; a *different* event claiming an already-held `(origin_node, origin_seq)` position is a detected collision → halt+alert (`emit-enforcement §4.3`), never a silent drop.
 
 ## 5. Scoped (partial) replication
 

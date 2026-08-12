@@ -28,7 +28,7 @@ subject_ref
   = identifies one Kawa-recognized characterization, for the life of the log
 ```
 
-A `subject_ref` is **minted by Emit** when a subject-creating event first occurs (`project.created`, `problem.raised`, `plan.proposed`, `review.started`, `finding.raised`). The creating event's `subject_ref` *is* the new identity. It is UUIDv7 for the same reasons as `event_id` (`event-log-and-replication §4.3`): offline-mintable, time-sortable, practically collision-free, node-independent.
+A `subject_ref` is **minted by Emit** when a subject-creating event first occurs (`project.created`, `problem.raised`, `plan.proposed`, `review.started`, `finding.raised`). The creating event's `subject_ref` *is* the new identity. It is UUIDv7: offline-mintable, time-sortable, practically collision-free, node-independent. (Distinct from `event_id`, which is content-addressed — `event_id = content_hash`, `event-log-and-replication §1`; a subject needs an identity *before* any content exists to hash, an Event's identity *is* its content.)
 
 A `subject_ref` grants **nothing**. Holding or knowing one does not imply:
 
