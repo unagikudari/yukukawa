@@ -221,3 +221,18 @@ def test_unattested_emit_has_null_signature(conn) -> None:  # type: ignore[no-un
     with conn.cursor() as cur:
         cur.execute("SELECT signature, signing_key_ref FROM events WHERE event_id=%s", (ev.event_id,))
         assert cur.fetchone() == (None, None)
+
+
+def test_context_bootstrap_orients_from_live_state(conn) -> None:  # type: ignore[no-untyped-def]
+    """The brief (context.bootstrap) orients a fresh session from live projections: current open plans
+    and the next actionable Work — the seamless-handoff mechanism, derived not static."""
+    from kawa.brief import bootstrap, render
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("pb", "kawa", "brief target")
+    k.set_plan_lifecycle("pb", "running")
+    k.derive_work("wb", "pb", "implement", role_requirement="Implementer")
+    b = bootstrap(conn)
+    assert any(p["plan_ref"] == "pb" for p in b["open_plans"])        # understanding = live open plans
+    assert any(w["work_ref"] == "wb" for w in b["next_work"])         # next actionable = live ready Work
+    text = render(b)
+    assert "pb" in text and "wb" in text and "Next actionable Work" in text
