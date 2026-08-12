@@ -1,10 +1,11 @@
 """context.bootstrap — the brief that orients a fresh session from Kawa's LIVE state, in one call.
 
 The seamless-handoff mechanism: a new session (or the kawa MCP on session-start, once it exists) calls
-`bootstrap(conn)` and learns where the work is — current understanding, the roadmap position, and the
-next actionable Work — without any carried-over context. It is a READ over the disposable projections
-(never a static doc): *Actors pass through Kawa; the position is derived from Kawa, and cannot go
-stale.* Reads only.
+`bootstrap(conn)` and receives a bounded ORIENTATION BUNDLE — open Plans, the roadmap position, and
+the next actionable Work — without any carried-over context. It is a READ over the disposable
+projections (never a static doc), and it is orientation records, not Kawa-authored Situational
+Awareness or "the current truth" (spec-v0.5 §2 / #95): the observer constructs understanding from it.
+Reads only.
 """
 from __future__ import annotations
 

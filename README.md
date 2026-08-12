@@ -6,7 +6,7 @@
 
 Kawa lets Humans and AI Agents continue shared work without depending on one conversation, one model, one runtime, or one machine.
 
-It preserves **what happened, why decisions were made, what evidence supported them, who was allowed to act, and what actually resulted** — so another Human or Agent can safely continue the work.
+It preserves **what happened, why decisions were made, what evidence supported them, who was allowed to act, and what outcomes were recorded** — so another Human or Agent can safely continue the work.
 
 A typical Kawa workflow looks like this:
 
@@ -23,7 +23,7 @@ the original Agent/runtime disappears
         ↓
 a different Agent connects to Kawa
         ↓
-it reconstructs the current situation and continues the available Work
+it pulls an orientation bundle from Kawa's records and continues the available Work
 ```
 
 The next participant does not need the original chat transcript to become useful.
@@ -33,9 +33,9 @@ The next participant does not need the original chat transcript to become useful
 - **Replace an Agent without losing the work.** Claude, Codex, Gemini, local models, Humans, and runtimes are participants rather than the memory.
 - **See what should happen next.** Plans preserve intent; Work exposes actionable steps.
 - **See why a decision exists.** Evidence, Problems, Plans, Work, Findings, revisions, and Results remain traversable.
-- **Do not treat AI inference as fact.** Observation, Claim, and current Fact are separate.
+- **Do not treat AI inference as fact.** Observation (what was measured) and Claim (what is asserted) are distinct, attributed records; Kawa records propositions, not objective truth.
 - **Do not treat authentication as permission.** Identity, capability, approval, and execution authority are separate.
-- **Do not treat “I ran it” as proof.** Intent, execution, and verified Result are separate.
+- **Do not treat “I ran it” as proof.** Intent, execution, and recorded post-action Observations are separate.
 - **Keep working through partitions.** Divergent histories are preserved and reconciled rather than silently overwritten.
 - **Inspect what an LLM retrieved before acting.** Semantic Retrieval is designed to keep relevance, freshness, epistemic standing, and selection distinct.
 
@@ -51,33 +51,33 @@ Internally, Kawa is an **event-sourced continuity and authority substrate** for 
 
 Humans, Agents, models, runtimes, and Nodes are replaceable participants. Kawa preserves the durable evidence, decisions, authority proofs, Plans, Results, and lineage needed for organizational work to continue when those participants change, disappear, partition, or fail.
 
-Kawa is **not** primarily an Agent framework, chat system, or long-term conversation memory. It is a continuity layer for organizational situational awareness and the OODA loop.
+Kawa is **not** primarily an Agent framework, chat system, or long-term conversation memory. It is a continuity layer for the OODA loop — Situational Awareness itself belongs to the observers who pull from it.
 
 ## Core model
 
 ```text
-Events
-  ↓ deterministic reducers + policy + evidence / trust
-Current Understanding
+Events (Observation / Claim / Plan / coordination)
+  ↓ deterministic reducers + typed relations
+derived views / retrieval bundles   (protocol state — disposable, rebuildable)
+  ↓
+Human / Agent observer  — owns Situational Awareness and Narrative
   ↓
 Plan → Work → Execution
   ↓
-Result / Observation / Claim / Finding
-  ↓
-new Events
+new Events (Results as coordination records, outcomes as Observations)
 ```
 
-The Event log is the durable Domain Source of Truth. Current state, graph views, Work readiness, health summaries, and other operator views are derived and rebuildable.
+The Event log is the durable Domain Source of Truth. Derived views (projections, Work readiness, health summaries, Console) organize records for observers; they are rebuildable and never become reality themselves.
 
 ## Founding principles
 
 - **Events are the Domain SoT.** Corrections create later Events; history is not rewritten.
-- **Current understanding is derived.** Projections, views, indexes, and caches are disposable.
+- **Derived views organize records; they do not become reality.** Projections, views, indexes, and caches are disposable.
 - **Stable semantics. Replaceable mechanics.** Storage profiles, transport, consensus, runtimes, CLI vendors, and process managers must remain replaceable.
 - **Identity ≠ Authority.** Identity, capability, approval, and execution authority are separate concepts.
-- **Intent ≠ Execution ≠ Verified Result.** A Plan does not prove that an effect occurred.
+- **Intent ≠ Execution ≠ Recorded Outcome.** A Plan does not prove that an effect occurred; what was seen after action enters as Observations.
 - **Agents communicate through shared state, not conversation.** Agents pull current context and Work from Kawa.
-- **Plan defines intent. Work exposes opportunity. Node/Runtime performs execution. Result records reality.**
+- **Plan defines intent. Work exposes opportunity. Node/Runtime performs execution. Results record reported outcomes; Observations record what was seen.**
 - **Unknown is a valid standing.** Missing evidence or proof must not be silently converted into certainty.
 - **Preserve history; reconcile understanding.** Partition-side branches, duplicates, and conflicting outcomes remain historical evidence and are interpreted later.
 - **Prevent when possible; preserve and reconcile when not.** Kawa must not manufacture an exactly-once illusion where the system lacks enough information to guarantee it.
@@ -249,7 +249,8 @@ The Console exists as repository code and reads the live Kawa database. Guided o
 ### Document authority
 
 Current-vs-historical map: [`docs/supersession-matrix-v0.1.md`](docs/supersession-matrix-v0.1.md).
-Consolidated architecture: [`docs/specification-v0.4.md`](docs/specification-v0.4.md). Superseded
+Consolidated architecture: [`docs/specification-v0.5.md`](docs/specification-v0.5.md) (supersedes
+[`specification-v0.4.md`](docs/specification-v0.4.md)). Superseded
 documents in the tree are redirect stubs; their full text remains in Git history.
 
 ## Architecture discipline
@@ -279,7 +280,7 @@ Major areas already have active designs or formal review around:
 - Event-only Source of Truth
 - Subject identity and lineage
 - Emit / durable write semantics
-- epistemic separation: Observation / Claim / Fact
+- epistemic separation: Observation / Claim (standing derived; no Kawa-owned Fact — v0.5 §2.6)
 - Human/Agent accountability
 - trust, workload identity, capability, approval, and execution authority
 - replication and partitioned history

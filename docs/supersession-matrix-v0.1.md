@@ -8,12 +8,12 @@ This file is the first document in the recommended reading path.
 ## Current architecture entry point
 
 ```text
-specification-v0.4.md
-  supersedes specification-v0.3.md
-  supersedes specification-v0.2.md transitively
+specification-v0.5.md
+  supersedes specification-v0.4.md
+  supersedes specification-v0.3.md / v0.2 transitively
 ```
 
-`specification-v0.4.md` is the current consolidated architecture specification. Detailed contracts below remain normative where they refine v0.4 without contradicting it.
+`specification-v0.5.md` is the current consolidated architecture specification (epistemic and runtime refoundation: Event / Observation / Claim / Plan nucleus; no Kawa-owned Fact or Current Understanding; Situational Awareness belongs to observers). Detailed contracts below remain normative where they refine v0.5 without contradicting it; contracts still carrying pre-v0.5 epistemic vocabulary (notably `epistemic-claim-model-v0.1.md`'s Fact projection) are pending revision under the #95 v0.5 trunk-alignment gate and MUST be read through v0.5 §2 until superseded.
 
 ## Current normative candidates
 
@@ -113,7 +113,7 @@ Superseded by: <current document>
 
 ## Authority rule
 
-If README, this matrix, `specification-v0.4.md`, a current detailed contract, or a superseded stub disagree about authority, the repository is inconsistent and the architecture gate remains open.
+If README, this matrix, `specification-v0.5.md`, a current detailed contract, or a superseded stub disagree about authority, the repository is inconsistent and the architecture gate remains open.
 
 A current detailed contract may refine the consolidated specification but MUST NOT silently contradict it.
 

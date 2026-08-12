@@ -109,10 +109,15 @@ def c4_docset(docs_by_name: dict[str, Path]) -> list[dict]:
     def refs(name: str) -> set[str]:
         p = docs_by_name.get(name)
         return set(DOCREF.findall(p.read_text(encoding="utf-8"))) if p else set()
+    # the consolidated spec index is the CURRENT specification-vN.M.md, resolved by
+    # version — hardcoding a version here is itself document-set drift (it silently
+    # kept indexing v0.4 after v0.5 superseded it).
+    spec_current = max((n for n in docs_by_name if _ver(n)[0] == "specification"),
+                      key=lambda n: _ver(n)[1], default="specification-v0.4.md")
     readme_p = REPO / "README.md"
     sources = {
         "matrix": refs("supersession-matrix-v0.1.md"),
-        "spec-26": refs("specification-v0.4.md"),
+        "spec-26": refs(spec_current),
         "readme": set(DOCREF.findall(readme_p.read_text(encoding="utf-8"))) if readme_p.exists() else set(),
     }
     existing = set(docs_by_name)
@@ -122,7 +127,6 @@ def c4_docset(docs_by_name: dict[str, Path]) -> list[dict]:
         stem, v = _ver(n)
         if v > highest.get(stem, (-1, -1)):
             highest[stem] = v
-    indices = {"supersession-matrix-v0.1.md", "specification-v0.4.md"}
 
     def is_current(n: str) -> bool:
         stem, v = _ver(n)
@@ -131,7 +135,7 @@ def c4_docset(docs_by_name: dict[str, Path]) -> list[dict]:
     out = []
     names = sorted(indices := (sources["matrix"] | sources["spec-26"] | sources["readme"]))
     for x in names:
-        if not is_current(x) or x in {"supersession-matrix-v0.1.md", "specification-v0.4.md"}:
+        if not is_current(x) or x in {"supersession-matrix-v0.1.md", spec_current}:
             continue
         present = [s for s, refset in sources.items() if x in refset]
         absent = [s for s, refset in sources.items() if x not in refset]
