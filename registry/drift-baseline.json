@@ -3,6 +3,7 @@
     "C3-quarantine|core-logical-schema-v0.3.md|mechanism term in Core doc: PostgreSQL",
     "C4-docset|architecture-adversarial-review-v0.2.md|current doc listed in matrix+readme but missing from spec-26",
     "C4-docset|document-versioning-and-reading-path-v0.1.md|current doc listed in matrix+readme but missing from spec-26",
-    "C4-docset|memory-broker-architecture-evidence-v0.1.md|current doc listed in matrix+readme but missing from spec-26"
+    "C4-docset|memory-broker-architecture-evidence-v0.1.md|current doc listed in matrix+readme but missing from spec-26",
+    "C4-docset|mcp-participant-introduction-v0.1.md|current doc listed in matrix+spec-26 but missing from readme"
   ]
 }

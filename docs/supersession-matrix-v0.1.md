@@ -31,6 +31,7 @@ postgresql-physical-schema-v0.3.md
   supersedes postgresql-physical-schema-v0.2.md and v0.1
 
 mcp-contract-v0.2.md
+mcp-participant-introduction-v0.1.md  (Phase-0 §16 realized, #106)
   supersedes mcp-contract-v0.1.md
 
 wizard-error-guidance-v0.2.md

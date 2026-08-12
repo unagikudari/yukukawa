@@ -172,6 +172,40 @@ class Kawa:
                                   "renderer_version": RENDERER_VERSION},
         }
 
+    def work_next_for_participant(self, registry, session_id: str) -> dict:
+        """Capability-gated Work discovery for a reachable participant (v0.5 §16.5).
+        A STRICTLY NARROWER view than work_next — never a substitute for it: reachability
+        volatility narrows discovery, never Work availability. Returns {work?, reason} with a
+        CLOSED reason taxonomy so the caller can act on the exact 'why nothing':
+          unreachable    — no live session (unregistered / dropped / restarted)
+          unauthorized   — session live, but not authorized for any ready Work's role
+          no_ready_work  — authorized, but nothing is currently ready
+          ok             — a Work is returned
+        The role→`role:<X>` projection here is an INTERNAL ADAPTER for the authorization
+        check only; role stays the Work-eligibility axis and capability the participant-
+        authorization axis (they never merge). Readiness is untouched — a ready Work with no
+        authorized participant stays ready and is still returned by the plain work_next."""
+        session = registry.lookup(session_id)
+        if session is None:
+            return {"work": None, "reason": "unreachable"}
+        # roles this participant is authorized for (role:<X> capabilities only — the adapter)
+        roles = {c[len("role:"):] for c in session.authorized if c.startswith("role:")}
+        if not roles:
+            return {"work": None, "reason": "unauthorized"}
+        # is there ANY ready Work at all (to distinguish unauthorized from no_ready_work)?
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT role_requirement FROM current_work WHERE execution='ready'")
+            ready_roles = {r[0] for r in cur.fetchall()}
+        if not ready_roles:
+            return {"work": None, "reason": "no_ready_work"}
+        if not (roles & {r for r in ready_roles if r is not None}):
+            return {"work": None, "reason": "unauthorized"}   # ready Work exists, none for these roles
+        for role in sorted(roles):
+            nxt = self.work_next(role=role)
+            if nxt is not None:
+                return {"work": nxt, "reason": "ok"}
+        return {"work": None, "reason": "no_ready_work"}
+
     def plan_progress(self, plan_ref: str) -> dict[str, int]:
         """§6.3: progress is a read-time projection over the Work DAG — never a stored
         percentage. Counts by execution state (incl. 'retired' as its own bucket)."""
