@@ -172,19 +172,23 @@ class Kawa:
                                   "renderer_version": RENDERER_VERSION},
         }
 
-    def work_next_for_participant(self, registry, session_id: str) -> dict:
-        """Capability-gated Work discovery for a reachable participant (v0.5 §16.5).
+    def work_next_for_participant(self, registry, session_id: str, *, claims=None,
+                                  now: float | None = None) -> dict:
+        """Capability-gated Work discovery for a reachable participant (v0.5 §16.5 + §7).
         A STRICTLY NARROWER view than work_next — never a substitute for it: reachability
         volatility narrows discovery, never Work availability. Returns {work?, reason} with a
         CLOSED reason taxonomy so the caller can act on the exact 'why nothing':
           unreachable    — no live session (unregistered / dropped / restarted)
           unauthorized   — session live, but not authorized for any ready Work's role
-          no_ready_work  — authorized, but nothing is currently ready
+          no_ready_work  — authorized, but nothing is currently ready (or all live-claimed)
           ok             — a Work is returned
         The role→`role:<X>` projection here is an INTERNAL ADAPTER for the authorization
         check only; role stays the Work-eligibility axis and capability the participant-
         authorization axis (they never merge). Readiness is untouched — a ready Work with no
-        authorized participant stays ready and is still returned by the plain work_next."""
+        authorized participant stays ready and is still returned by the plain work_next.
+        When a ClaimRegistry is given (§7), Work actively claimed by a DIFFERENT live session
+        is a temporary DISCOVERY exclusion (not a readiness change); an expired claim is
+        absent, so a ghost claim never suppresses this pull."""
         session = registry.lookup(session_id)
         if session is None:
             return {"work": None, "reason": "unreachable"}
@@ -201,10 +205,60 @@ class Kawa:
         if not (roles & {r for r in ready_roles if r is not None}):
             return {"work": None, "reason": "unauthorized"}   # ready Work exists, none for these roles
         for role in sorted(roles):
-            nxt = self.work_next(role=role)
+            nxt = self._work_next_unclaimed(role=role, claims=claims, session_id=session_id, now=now)
             if nxt is not None:
                 return {"work": nxt, "reason": "ok"}
-        return {"work": None, "reason": "no_ready_work"}
+        return {"work": None, "reason": "no_ready_work"}      # all matching Work is live-claimed
+
+    def _work_next_unclaimed(self, *, role, claims, session_id, now):  # type: ignore[no-untyped-def]
+        """work_next(role), skipping Work held by a DIFFERENT live session. Iterates ready
+        Work in the same FIFO order until it finds one this participant may take (unclaimed,
+        expired-claim, or its own claim). Claims never touch readiness — the exclusion is
+        applied here at the discovery boundary only."""
+        if claims is None:
+            return self.work_next(role=role)
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT work_ref FROM current_work WHERE execution='ready' AND "
+                        "role_requirement=%s ORDER BY ready_at NULLS LAST, work_ref", (role,))
+            candidates = [r[0] for r in cur.fetchall()]
+        for work_ref in candidates:
+            holder = claims.holder(work_ref, now if now is not None else 0.0)
+            if holder is None or holder == session_id:        # free / expired / own claim
+                return self._work_contract(work_ref)
+        return None
+
+    def _work_contract(self, work_ref: str) -> dict | None:
+        """The structured Work contract + JIT instruction for a specific ready work_ref
+        (shared by work_next and the claim-aware discovery path)."""
+        from kawa.application.jit import RENDERER_VERSION, RenderInput, render_instruction
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT w.work_ref, w.plan_ref, w.work_kind, w.role_requirement, "
+                "ew.objective, ew.constraints, ew.expected_observations, "
+                "w.latest_event_id, p.objective, p.latest_event_id "
+                "FROM current_work w JOIN current_plans p ON p.plan_ref = w.plan_ref "
+                "LEFT JOIN LATERAL (SELECT e2.objective, e2.constraints, e2.expected_observations "
+                "  FROM event_work e2 JOIN events ev ON ev.event_id = e2.event_id "
+                "  WHERE e2.work_ref = w.work_ref "
+                "  ORDER BY split_part(ev.hlc,'.',1)::bigint DESC, "
+                "           split_part(ev.hlc,'.',2)::bigint DESC, ev.origin_node DESC LIMIT 1) ew ON true "
+                "WHERE w.work_ref=%s AND w.execution='ready'", (work_ref,))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        (wr, plan_ref, work_kind, role_req, objective, cons, eobs, w_event, plan_obj, p_event) = row
+        inp = RenderInput(work_ref=wr, plan_ref=plan_ref, work_kind=work_kind, role_requirement=role_req,
+                          objective=objective, constraints=tuple(cons) if cons else None,
+                          expected_observations=tuple(eobs) if eobs else None, plan_objective=plan_obj)
+        return {
+            "work": {"work_ref": wr, "plan_ref": plan_ref, "work_kind": work_kind,
+                     "role_requirement": role_req, "objective": objective,
+                     "constraints": list(cons) if cons else None,
+                     "expected_observations": list(eobs) if eobs else None},
+            "instruction": render_instruction(inp),
+            "instruction_basis": {"plan_ref": plan_ref, "work_ref": wr, "consumed": [w_event, p_event],
+                                  "renderer_version": RENDERER_VERSION},
+        }
 
     def plan_progress(self, plan_ref: str) -> dict[str, int]:
         """§6.3: progress is a read-time projection over the Work DAG — never a stored

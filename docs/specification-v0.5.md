@@ -1309,6 +1309,7 @@ identity-credential-lifecycle-v0.2.md
 llm-write-input-minimization-v0.1.md
 mcp-contract-v0.2.md
 mcp-participant-introduction-v0.1.md
+wake-pull-coordination-v0.1.md
 memory-broker-architecture-evidence-v0.1.md
 memory-broker-extend-vs-kawa-v0.1.md
 memory-broker-migration-coexistence-v0.1.md
