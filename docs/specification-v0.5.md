@@ -1280,3 +1280,44 @@ Recommended dependency order:
 This document is a design specification. A section being present here means **DESIGNED**, not necessarily IMPLEMENTED, INTEGRATED, DEPLOYABLE, DOGFOODED, or PUBLIC.
 
 Current implementation claims MUST be verified separately against repository code, migrations, tests, live multi-node runs, and operator-visible behavior.
+
+---
+
+## 26. Current Document Set
+
+The detailed contracts currently in force alongside this specification (the supersession
+matrix is the authority map; this list exists so spec, matrix, and README cannot drift
+apart silently — the C4 document-set lint compares all three):
+
+```text
+approval-binding-v0.1.md
+architecture-adversarial-review-v0.2.md
+architecture-review-findings-v0.1.md
+consistency-and-authority-v0.1.md
+console-read-model-v0.1.md
+core-logical-schema-v0.3.md
+deterministic-observation-ingestion-v0.1.md
+document-versioning-and-reading-path-v0.1.md
+emit-enforcement-contract-v0.1.md
+epistemic-claim-model-v0.2.md
+event-log-and-replication-v0.1.md
+event-taxonomy-v0.2.md
+git-plan-workspace-v0.1.md
+github-workflow-integration-v0.1.md
+identity-credential-lifecycle-v0.1.md
+llm-write-input-minimization-v0.1.md
+mcp-contract-v0.2.md
+memory-broker-architecture-evidence-v0.1.md
+memory-broker-extend-vs-kawa-v0.1.md
+memory-broker-migration-coexistence-v0.1.md
+operation-effect-identity-v0.8.md
+postgresql-physical-schema-v0.3.md
+prototype-vertical-slice-v0.1.md
+reducer-projection-contract-v0.2.md
+scope-resolution-v0.1.md
+security-model-v0.1.md
+stale-write-guard-v0.1.md
+subject-identity-and-lineage-v0.1.md
+user-value-and-onboarding-v0.1.md
+wizard-error-guidance-v0.2.md
+```

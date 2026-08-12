@@ -3,7 +3,7 @@
 Status: Draft, normative candidate — the root data structure the write path, consistency model, and authority scoping are all defined over
 Scope: What a `subject_ref` is, how it is minted, how subject meaning and lineage evolve without ever mutating identity, and how the authority/serialization domain is derived from a subject rather than equated with it.
 Informed by: research note #27 (W3C PROV, RFC 9562 UUIDv7, IPFS content-addressing, DDD aggregates — inputs, not authorities).
-Companions: `event-log-and-replication-v0.1.md` (the envelope carrying `subject_ref`), `emit-enforcement-contract-v0.1.md` (the write path this refines), `epistemic-claim-model-v0.1.md` (equivalence as Fact).
+Companions: `event-log-and-replication-v0.1.md` (the envelope carrying `subject_ref`), `emit-enforcement-contract-v0.1.md` (the write path this refines), `epistemic-claim-model-v0.2.md` (equivalence as derived standing).
 
 > Identity is immutable. Meaning evolves through Events.
 
@@ -43,7 +43,7 @@ Two disconnected nodes may each mint a `subject_ref` for what is later understoo
 
 ## 2. Layer 2 — Subject Meaning and Lineage (event-derived)
 
-The meaning of a subject — its current characterization, its history, its relationships to other subjects — is **reconstructed from Events and explicit typed relations**, exactly as Fact is (`epistemic-claim-model`). Identity stays fixed; meaning only ever *acquires* Events and relations. It is never edited in place.
+The meaning of a subject — its current characterization, its history, its relationships to other subjects — is **reconstructed from Events and explicit typed relations**, exactly as claim standing is (`epistemic-claim-model-v0.2`). Identity stays fixed; meaning only ever *acquires* Events and relations. It is never edited in place.
 
 ### 2.1 Lineage relations (Core v0.1, minimal)
 
@@ -68,16 +68,16 @@ If two nodes independently mint `subject_A` and `subject_B` for the same apparen
 
 ```text
 same_as_candidate   a CLAIM (or deterministic Observation) that A and B denote one thing
-equivalence Fact     a PROJECTION over such claims + evidence + policy (clear | conflicted | unknown)
+equivalence standing a PROJECTION over such claims + evidence + policy (clear | conflicted | unknown)
 canonicalizes_to     a GOVERNED, authoritative decision to treat B as canonical for A
 ```
 
 Two distinct levels, deliberately separated:
 
-- **Read-equivalence** — orientation and Situation Awareness may present A and B as one composed view when the equivalence Fact is `clear`. This is a projection; it changes no identity and no authority.
+- **Read-equivalence** — orientation and Situation Awareness may present A and B as one composed view when the equivalence standing is `clear`. This is a projection; it changes no identity and no authority.
 - **Authority-merge** — `canonicalizes_to` is a CP-plane, governed event (approval-bound, `approval-binding`). Only it makes B the authority target for A's future authoritative operations.
 
-So two subjects can be **equivalent for reading while remaining distinct authority targets** until an accountable canonicalization. Equivalence is asserted and proven; it is never guessed. (This is the same projection pattern as trust (#21), evidence-grade (#22), and Fact itself — the log carries identity and assertions; meaning is a current projection resolved by policy.)
+So two subjects can be **equivalent for reading while remaining distinct authority targets** until an accountable canonicalization. Equivalence is asserted and proven; it is never guessed. (This is the same projection pattern as trust (#21), evidence-grade (#22), and claim standing itself — the log carries identity and assertions; meaning is a current projection resolved by policy.)
 
 ## 4. The authority key is derived from the subject, not equal to it
 

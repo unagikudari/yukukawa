@@ -11,7 +11,10 @@ from typing import TypedDict
 import psycopg
 
 from kawa.domain.events import (
+    ClaimRecorded,
     Event,
+    LinkAsserted,
+    ObservationRecorded,
     Payload,
     PlanCreated,
     PlanLifecycleChanged,
@@ -77,6 +80,39 @@ class Kawa:
             ResultRecorded(work_ref=work_ref, outcome=outcome, result_ref=result_ref,  # type: ignore[arg-type]
                            summary=summary)
         )
+
+    def record_observation(self, predicate: str, *, value_text: str | None = None,
+                           value_number: float | None = None, value_bool: bool | None = None,
+                           value_time: str | None = None, method: str, occurred_at: str | None = None,
+                           subject_ref: str | None = None, source_ref: str | None = None,
+                           source_revision: str | None = None, content_digest: str | None = None,
+                           fetched_at: str | None = None) -> Event:
+        return self._emit_reduce(
+            ObservationRecorded(predicate=predicate, value_text=value_text, value_number=value_number,
+                                value_bool=value_bool, value_time=value_time,
+                                observation_method_class=method, occurred_at=occurred_at,  # type: ignore[arg-type]
+                                source_ref=source_ref, source_revision=source_revision,
+                                content_digest=content_digest, fetched_at=fetched_at),
+            subject_ref=subject_ref,
+        )
+
+    def record_claim(self, proposition: str, *, basis_note: str | None = None,
+                     subject_ref: str | None = None) -> Event:
+        return self._emit_reduce(
+            ClaimRecorded(proposition=proposition, basis_note=basis_note), subject_ref=subject_ref
+        )
+
+    def assert_link(self, source_ref: str, relation: str, target_ref: str) -> Event:
+        return self._emit_reduce(
+            LinkAsserted(source_ref=source_ref, relation=relation, target_ref=target_ref)  # type: ignore[arg-type]
+        )
+
+    def claim_standing(self, claim_event_id: str) -> str | None:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT standing FROM current_claim_standing WHERE claim_event_id=%s",
+                        (claim_event_id,))
+            row = cur.fetchone()
+        return row[0] if row else None
 
     # ---- reads (from projections) ----
     def work_next(self, role: str | None = None) -> WorkItem | None:

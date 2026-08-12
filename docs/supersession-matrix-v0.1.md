@@ -13,7 +13,7 @@ specification-v0.5.md
   supersedes specification-v0.3.md / v0.2 transitively
 ```
 
-`specification-v0.5.md` is the current consolidated architecture specification (epistemic and runtime refoundation: Event / Observation / Claim / Plan nucleus; no Kawa-owned Fact or Current Understanding; Situational Awareness belongs to observers). Detailed contracts below remain normative where they refine v0.5 without contradicting it; contracts still carrying pre-v0.5 epistemic vocabulary (notably `epistemic-claim-model-v0.1.md`'s Fact projection) are pending revision under the #95 v0.5 trunk-alignment gate and MUST be read through v0.5 §2 until superseded.
+`specification-v0.5.md` is the current consolidated architecture specification (epistemic and runtime refoundation: Event / Observation / Claim / Plan nucleus; no Kawa-owned Fact or Current Understanding; Situational Awareness belongs to observers). Detailed contracts below remain normative where they refine v0.5 without contradicting it; the epistemic nucleus is realized by `epistemic-claim-model-v0.2.md` (#97); `reducer-projection-contract-v0.2.md` and the FROZEN `consistency-and-authority-v0.1.md` still carry pre-v0.5 `Fact` wording and MUST be read through v0.5 §2 — their revision rides the projection-contract work (roadmap step 4) and the authority work (step 10) respectively.
 
 ## Current normative candidates
 
@@ -50,7 +50,8 @@ identity-credential-lifecycle-v0.1.md
 scope-resolution-v0.1.md
 approval-binding-v0.1.md
 stale-write-guard-v0.1.md
-epistemic-claim-model-v0.1.md
+epistemic-claim-model-v0.2.md
+  supersedes epistemic-claim-model-v0.1.md (Fact projection abolished — v0.5 §2.6, #97)
 deterministic-observation-ingestion-v0.1.md
 llm-write-input-minimization-v0.1.md
 git-plan-workspace-v0.1.md

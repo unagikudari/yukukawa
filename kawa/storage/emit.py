@@ -14,7 +14,10 @@ from __future__ import annotations
 import psycopg
 
 from kawa.domain.events import (
+    ClaimRecorded,
     Event,
+    LinkAsserted,
+    ObservationRecorded,
     Payload,
     PlanCreated,
     PlanLifecycleChanged,
@@ -142,6 +145,27 @@ def _insert_payload(cur: psycopg.Cursor, event: Event) -> None:
             "INSERT INTO event_result (event_id, work_ref, outcome, result_ref, summary) "
             "VALUES (%s,%s,%s,%s,%s)",
             (eid, p.work_ref, p.outcome, p.result_ref, p.summary),
+        )
+    elif isinstance(p, LinkAsserted):
+        cur.execute(
+            "INSERT INTO event_link (event_id, source_ref, relation, target_ref) "
+            "VALUES (%s,%s,%s,%s)",
+            (eid, p.source_ref, p.relation, p.target_ref),
+        )
+    elif isinstance(p, ObservationRecorded):
+        cur.execute(
+            "INSERT INTO event_observation (event_id, predicate, value_text, value_number, "
+            "value_bool, value_time, observation_method_class, occurred_at, "
+            "source_ref, source_revision, content_digest, fetched_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (eid, p.predicate, p.value_text, p.value_number, p.value_bool, p.value_time,
+             p.observation_method_class, p.occurred_at,
+             p.source_ref, p.source_revision, p.content_digest, p.fetched_at),
+        )
+    elif isinstance(p, ClaimRecorded):
+        cur.execute(
+            "INSERT INTO event_claim (event_id, proposition, basis_note) VALUES (%s,%s,%s)",
+            (eid, p.proposition, p.basis_note),
         )
     else:  # pragma: no cover - exhaustive over Payload union
         raise RuntimeError(f"no payload writer for {type(p).__name__}")
