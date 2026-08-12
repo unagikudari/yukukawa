@@ -150,9 +150,9 @@ def _insert_payload(cur: psycopg.Cursor, event: Event) -> None:
         )
     elif isinstance(p, ResultRecorded):
         cur.execute(
-            "INSERT INTO event_result (event_id, work_ref, outcome, result_ref, summary) "
-            "VALUES (%s,%s,%s,%s,%s)",
-            (eid, p.work_ref, p.outcome, p.result_ref, p.summary),
+            "INSERT INTO event_result (event_id, work_ref, outcome, result_ref, summary, "
+            "occurrence_key) VALUES (%s,%s,%s,%s,%s,%s)",
+            (eid, p.work_ref, p.outcome, p.result_ref, p.summary, p.occurrence_key),
         )
     elif isinstance(p, LinkAsserted):
         cur.execute(

@@ -40,13 +40,46 @@ _OWN_EXEC = {
     "execution_unknown": "execution_unknown",
 }
 
-# deterministic "latest Result" for a work: causal HLC order, origin as final tiebreak (§3)
+# deterministic "latest Result" for a work: causal HLC order, origin as final tiebreak (§3).
+# Quarantined duplicates (#111 BC-2) are invisible here — a duplicate occurrence never moves
+# work state or dependency state, on any node, in any arrival order.
 _LATEST_RESULT_SQL = (
     "SELECT er.outcome, er.result_ref FROM event_result er "
     "JOIN events e ON e.event_id = er.event_id WHERE er.work_ref = %s "
+    "AND NOT EXISTS (SELECT 1 FROM result_occurrence_quarantine q WHERE q.event_id = er.event_id) "
     "ORDER BY split_part(e.hlc,'.',1)::bigint DESC, split_part(e.hlc,'.',2)::bigint DESC, "
     "e.origin_node DESC LIMIT 1"
 )
+
+# first consumer of an occurrence key: the same causal total order, ascending — arrival and
+# replay order cannot change who consumed first, so quarantine membership is convergent.
+_OCCURRENCE_CONSUMERS_SQL = (
+    "SELECT er.event_id FROM event_result er "
+    "JOIN events e ON e.event_id = er.event_id "
+    "WHERE er.work_ref = %s AND er.occurrence_key = %s "
+    "ORDER BY split_part(e.hlc,'.',1)::bigint, split_part(e.hlc,'.',2)::bigint, e.origin_node"
+)
+
+
+def _requarantine_occurrence(cur: psycopg.Cursor, work_ref: str, occurrence_key: str) -> None:
+    """BC-2 duplicate containment, recomputed deterministically. The FIRST consumer in the
+    causal total order keeps the key; every other Result carrying it is quarantined — recorded
+    (the log is append-only; history is never refused after admission) but inert for
+    projections. Recomputed wholesale so a late-arriving earlier consumer converges every
+    node to the same winner regardless of arrival order."""
+    cur.execute(_OCCURRENCE_CONSUMERS_SQL, (work_ref, occurrence_key))
+    consumers = [r[0] for r in cur.fetchall()]
+    if not consumers:
+        return
+    winner, losers = consumers[0], consumers[1:]
+    cur.execute("DELETE FROM result_occurrence_quarantine WHERE work_ref=%s AND occurrence_key=%s",
+                (work_ref, occurrence_key))
+    for loser in losers:
+        cur.execute(
+            "INSERT INTO result_occurrence_quarantine (event_id, work_ref, occurrence_key, "
+            "first_event_id) VALUES (%s,%s,%s,%s) ON CONFLICT (event_id) DO NOTHING",
+            (loser, work_ref, occurrence_key, winner),
+        )
 
 
 def reduce(cur: psycopg.Cursor, event: Event) -> None:
@@ -107,6 +140,10 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
         # Result (pure predicate — replay-order independent even for late-arriving results).
         # Retirement dominates (#102): a Result for a retired Work stays recorded in the log
         # but is inert for projections — own-exec stays 'retired', dependents stay 'retired'.
+        # Occurrence containment first (#111 BC-2): settle who consumed this key, THEN read
+        # the latest non-quarantined Result — a duplicate changes nothing downstream.
+        if p.occurrence_key is not None:
+            _requarantine_occurrence(cur, p.work_ref, p.occurrence_key)
         cur.execute(_LATEST_RESULT_SQL, (p.work_ref,))
         outcome, result_ref = cur.fetchone()  # at least this event's own row exists
         cur.execute(
@@ -345,9 +382,11 @@ def _load_payload(cur: psycopg.Cursor, event_id: str, kind: str) -> Payload:
         work_ref, dep_ref, policy = cur.fetchone()
         return WorkDependencyDeclared(work_ref=work_ref, dependency_work_ref=dep_ref, satisfaction_policy=policy)
     if kind == EventKind.RESULT_RECORDED.value:
-        cur.execute("SELECT work_ref, outcome, result_ref, summary FROM event_result WHERE event_id=%s", (event_id,))
-        work_ref, outcome, result_ref, summary = cur.fetchone()
-        return ResultRecorded(work_ref=work_ref, outcome=outcome, result_ref=result_ref, summary=summary)
+        cur.execute("SELECT work_ref, outcome, result_ref, summary, occurrence_key "
+                    "FROM event_result WHERE event_id=%s", (event_id,))
+        work_ref, outcome, result_ref, summary, occurrence_key = cur.fetchone()
+        return ResultRecorded(work_ref=work_ref, outcome=outcome, result_ref=result_ref,
+                              summary=summary, occurrence_key=occurrence_key)
     if kind == EventKind.LINK_ASSERTED.value:
         cur.execute("SELECT source_ref, relation, target_ref FROM event_link WHERE event_id=%s", (event_id,))
         source_ref, relation, target_ref = cur.fetchone()
@@ -377,8 +416,11 @@ def _load_payload(cur: psycopg.Cursor, event_id: str, kind: str) -> Payload:
 def rebuild(conn: psycopg.Connection) -> int:
     """DROP-equivalent: truncate projections and replay the Event log. Returns events replayed."""
     with conn.cursor() as cur:
+        # result_occurrence_quarantine is a PROJECTION (derived from event_result rows, #111
+        # BC-2) so it rebuilds; security_fork_evidence is EVIDENCE, not derivable — untouched.
         cur.execute("TRUNCATE current_plans, current_work, current_work_dependency, "
-                    "runtime_work_occupancy, event_links, current_claim_standing")
+                    "runtime_work_occupancy, event_links, current_claim_standing, "
+                    "result_occurrence_quarantine")
     events = load_events(conn)
     for event in events:
         if not event.verify():

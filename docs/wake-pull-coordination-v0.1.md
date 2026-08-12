@@ -49,7 +49,8 @@ Phase-0 has **no silence detector** — §17's "loss of reachability is mechanic
 ## 6. Non-goals (explicit, no overclaim)
 
 - Step 7 reduces duplicate **live** dispatch within one running broker instance.
-- Step 7 does **NOT** guarantee exactly-once effects. A restart while a claim is held can rediscover the Work and MAY cause duplicate execution unless the operation is idempotent or later **effect identity (step 8)** gates it. In-memory claims vanishing on restart is fail-OPEN toward rediscovery (availability), not duplicate-execution safety.
+- Step 7 does **NOT** guarantee exactly-once effects. A restart while a claim is held can rediscover the Work and MAY cause duplicate execution unless the operation is idempotent or effect identity gates it. In-memory claims vanishing on restart is fail-OPEN toward rediscovery (availability), not duplicate-execution safety.
+  - **The honest split, as step 8 discharged it (#111 8D / node-identity-and-incarnation §5):** step 8 gates exactly-once **Result recording per attempt lineage** — a re-executed attempt re-derives the same plan-node `occurrence_key` and its duplicate Result is contained (quarantined, inert for projections), while a deliberate retry after failure derives a new key and records normally. The window between an *external* side effect firing and its Result being recorded is **still open**: closing it is the effect-identity keystone's actuator `CommitToken` (spec §20 territory), deferred and named — not silently claimed.
 
 ## 7. Realized mapping (§25: implemented, tested)
 

@@ -81,10 +81,13 @@ class Kawa:
         )
 
     def record_result(self, work_ref: str, outcome: str, result_ref: str,
-                      summary: str | None = None) -> Event:
+                      summary: str | None = None,
+                      occurrence_key: str | None = None) -> Event:
+        """`occurrence_key` (#111 8D): derive via `occurrence.work_occurrence_key` with the
+        causal prior FROM THE RETRY TRIGGER (BC-1) — never from a local latest-Result query."""
         return self._emit_reduce(
             ResultRecorded(work_ref=work_ref, outcome=outcome, result_ref=result_ref,  # type: ignore[arg-type]
-                           summary=summary)
+                           summary=summary, occurrence_key=occurrence_key)
         )
 
     def record_observation(self, predicate: str, *, value_text: str | None = None,

@@ -119,6 +119,14 @@ class ResultRecorded(_Payload):
     outcome: Literal["success", "failure", "conflicted", "execution_unknown"]
     result_ref: str
     summary: str | None = None
+    # #111 8D: the plan-node attempt-lineage occurrence key (occurrence.work_occurrence_key).
+    # A payload field, never an envelope/hash-input column; step-4 set-only dump rule so the
+    # digests of every pre-step-8 Result are untouched.
+    occurrence_key: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _ser(self, handler):  # type: ignore[no-untyped-def]
+        return _drop_unset_step4_keys(handler(self), ("occurrence_key",))
 
 
 class LinkAsserted(_Payload):

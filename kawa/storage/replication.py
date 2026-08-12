@@ -40,7 +40,8 @@ class Rejection:
     origin_seq: int
     reason: str  # 'collision' | 'chain_gap' | 'chain_break' | 'envelope_invalid' | 'unsigned' |
     #              'provenance_invalid' | 'trust_rotated' | 'trust_revoked' | 'trust_unknown' |
-    #              'forged_origin' | 'predecessor_rejected'
+    #              'forged_origin' | 'predecessor_rejected' | 'origin_frozen' |
+    #              'equivocation' | 'restore_fork' | 'wire_invalid' (transport, replication_http)
 
 
 @dataclass(frozen=True)
@@ -61,28 +62,34 @@ def read_stream(conn: psycopg.Connection, after: dict[str, int]) -> list[Event]:
     """Serve Events beyond a peer's frontier, per-origin ordered, WITH provenance columns.
 
     (reducers.load_events omits signature columns — replication must carry them, because the
-    receiver's admission verifies the origin's attestation, not the server's word.)"""
+    receiver's admission verifies the origin's attestation, not the server's word.)
+
+    Indexed per-origin ranges (#111 8C): the frontier names exactly what each origin is missing,
+    so serving is range queries over the (origin_node, origin_seq) natural key — never a full scan."""
     out: list[Event] = []
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT event_id, origin_node, origin_seq, hlc, kind, subject_ref, actor_ref, "
-            "policy_digest, payload_digest, prev_hash, self_hash, "
-            "signature, signing_key_ref, signature_scheme "
-            "FROM events ORDER BY origin_node, origin_seq"
-        )
-        rows = cur.fetchall()
-        for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh, sig, kref, scheme) in rows:
-            if oseq <= after.get(onode, 0):
+        for onode, top in sorted(frontier(conn).items()):
+            lo = after.get(onode, 0)
+            if top <= lo:
                 continue
-            payload = _load_payload(cur, eid, kind)
-            out.append(Event(
-                event_id=eid, origin_node=onode, origin_seq=oseq, hlc=hlc,
-                kind=EventKind(kind), subject_ref=str(subj) if subj else None,
-                actor_ref=actor, policy_digest=pol, payload_digest=pd,
-                prev_hash=prev, self_hash=sh,
-                signature=sig, signing_key_ref=kref, signature_scheme=scheme,
-                payload=payload,
-            ))
+            cur.execute(
+                "SELECT event_id, origin_node, origin_seq, hlc, kind, subject_ref, actor_ref, "
+                "policy_digest, payload_digest, prev_hash, self_hash, "
+                "signature, signing_key_ref, signature_scheme "
+                "FROM events WHERE origin_node = %s AND origin_seq > %s ORDER BY origin_seq",
+                (onode, lo),
+            )
+            rows = cur.fetchall()
+            for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh, sig, kref, scheme) in rows:
+                payload = _load_payload(cur, eid, kind)
+                out.append(Event(
+                    event_id=eid, origin_node=onode, origin_seq=oseq, hlc=hlc,
+                    kind=EventKind(kind), subject_ref=str(subj) if subj else None,
+                    actor_ref=actor, policy_digest=pol, payload_digest=pd,
+                    prev_hash=prev, self_hash=sh,
+                    signature=sig, signing_key_ref=kref, signature_scheme=scheme,
+                    payload=payload,
+                ))
     return out
 
 
@@ -104,22 +111,64 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
         )
         for node, seq, sh in cur.fetchall():
             heads[node] = (seq, sh)
+        # 8B: a frozen origin admits NOTHING until the operator resolves the fork — durable,
+        # so the freeze holds across restarts and re-pulls (#111 acceptance).
+        cur.execute("SELECT DISTINCT origin_node FROM security_fork_evidence WHERE frozen")
+        frozen: set[str] = {r[0] for r in cur.fetchall()}
 
         for e in batch:
             def reject(reason: str) -> None:
                 report_rejected.append(Rejection(e.event_id, e.origin_node, e.origin_seq, reason))
                 poisoned.add(e.origin_node)
 
+            if e.origin_node in frozen:
+                reject("origin_frozen")
+                continue
             if e.origin_node in poisoned:
                 reject("predecessor_rejected")
                 continue
             head_seq, head_hash = heads.get(e.origin_node, (0, None))
             if e.origin_seq <= head_seq:
-                cur.execute("SELECT event_id FROM events WHERE origin_node=%s AND origin_seq=%s",
+                cur.execute("SELECT event_id, self_hash, signing_key_ref FROM events "
+                            "WHERE origin_node=%s AND origin_seq=%s",
                             (e.origin_node, e.origin_seq))
                 row = cur.fetchone()
                 if row is not None and row[0] == e.event_id:
                     continue                   # already held — idempotent re-delivery is a no-op
+                # A different event at a held position. Only a rival that would pass the FULL
+                # trust gate at its CURRENT standing — provenance valid AND active AND correctly
+                # attributed — is §13 fork evidence. Unauthenticated junk must stay a plain
+                # collision (any stranger could freeze a healthy origin), and so must a rival
+                # under a rotated/revoked key (PR #112 review finding 1: a distrusted key —
+                # e.g. the loser of a resolved fork — could otherwise mint fresh rivals and
+                # re-freeze the origin forever; current standing, not at_seq, for exactly that
+                # reason). Never LWW either way: neither branch wins implicitly.
+                if (row is not None and e.verify() and e.signature is not None
+                        and e.signing_key_ref is not None and e.signature_scheme is not None
+                        and admit(evaluate(e.self_hash, e.signature, e.signing_key_ref,
+                                           e.signature_scheme, keys, trust))
+                        and trust.node_ref(e.signing_key_ref) == e.origin_node):
+                    held_id, held_hash_at, held_key = row
+                    held_inc = trust.incarnation_ref(held_key) if held_key else None
+                    rival_inc = trust.incarnation_ref(e.signing_key_ref)
+                    # same known incarnation speaking with two voices = equivocation; distinct
+                    # known incarnations = restore-fork. Unknown attribution classifies at the
+                    # SEVERE end (equivocation) — fail toward scrutiny, never toward comfort.
+                    classification = ("restore_fork"
+                                      if held_inc is not None and rival_inc is not None
+                                      and held_inc != rival_inc else "equivocation")
+                    cur.execute(
+                        "INSERT INTO security_fork_evidence (origin_node, origin_seq, "
+                        "held_event_id, held_hash, rival_event_id, rival_hash, held_key_ref, "
+                        "rival_key_ref, held_incarnation, rival_incarnation, classification) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                        (e.origin_node, e.origin_seq, held_id, held_hash_at, e.event_id,
+                         e.self_hash, held_key, e.signing_key_ref, held_inc, rival_inc,
+                         classification),
+                    )
+                    frozen.add(e.origin_node)
+                    reject(classification)
+                    continue
                 reject("collision")            # same position, different content: §4.1 halt+alert, never silent
                 continue
             if e.origin_seq != head_seq + 1:
@@ -135,7 +184,10 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
             if e.signature is None or e.signing_key_ref is None or e.signature_scheme is None:
                 reject("unsigned")             # cross-node requires attestation; local-only leniency ends here
                 continue
-            ev = evaluate(e.self_hash, e.signature, e.signing_key_ref, e.signature_scheme, keys, trust)
+            # BC-3: judge trust AT the event's own seq — a fork-scoped revocation must not
+            # reject legitimate pre-fork trunk events that replicate late.
+            ev = evaluate(e.self_hash, e.signature, e.signing_key_ref, e.signature_scheme,
+                          keys, trust, at_seq=e.origin_seq)
             if not admit(ev):
                 reject("provenance_invalid" if not ev.provenance_valid else f"trust_{ev.trust_standing}")
                 continue
@@ -168,3 +220,75 @@ def pull(dest: psycopg.Connection, source: psycopg.Connection, *, keys: PublicKe
     """One anti-entropy pull (event-log-and-replication §4.1): frontier → missing events → gated admit.
     `keys`/`trust` are the RECEIVER's registries — trust is a local judgement, never taken from the peer."""
     return admit_batch(dest, read_stream(source, frontier(dest)), keys=keys, trust=trust, clock=clock)
+
+
+def incarnation_intervals(conn: psycopg.Connection, trust: TrustRegistry,
+                          origin_node: str) -> list[tuple[str | None, int, int]]:
+    """§13 "origin sequence within incarnation", made checkable from the trust plane (#111 8A):
+    attribute each of an origin's events to the incarnation of its signing key and collapse runs
+    into `(incarnation, lo_seq, hi_seq)` intervals in seq order. A healthy lineage yields each
+    incarnation exactly ONE contiguous interval; an incarnation appearing twice (interleaved
+    intervals) is succession evidence — surfaced by `check_incarnation_contiguity`."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT origin_seq, signing_key_ref FROM events "
+                    "WHERE origin_node=%s ORDER BY origin_seq", (origin_node,))
+        rows = cur.fetchall()
+    intervals: list[tuple[str | None, int, int]] = []
+    for seq, key_ref in rows:
+        inc = trust.incarnation_ref(key_ref) if key_ref else None
+        if intervals and intervals[-1][0] == inc and intervals[-1][2] == seq - 1:
+            intervals[-1] = (inc, intervals[-1][1], seq)
+        else:
+            intervals.append((inc, seq, seq))
+    return intervals
+
+
+def check_incarnation_contiguity(intervals: list[tuple[str | None, int, int]]) -> list[str]:
+    """Violations: any incarnation owning more than one interval (its events interleave with
+    another incarnation's — a succession that went backward or forked). Empty list = healthy."""
+    seen: set[str | None] = set()
+    violations: list[str] = []
+    for inc, lo, hi in intervals:
+        if inc in seen:
+            violations.append(f"incarnation {inc!r} re-appears at seq {lo}..{hi} — "
+                              "non-contiguous attribution (succession evidence)")
+        seen.add(inc)
+    return violations
+
+
+def resolve_fork(conn: psycopg.Connection, trust: TrustRegistry, *, origin_node: str,
+                 origin_seq: int, chosen_head: str, operator_ref: str, reason: str) -> None:
+    """The ONLY release path for a frozen origin — an explicit, audited operator action (#111 8B).
+    Forward-only: the losing branch's key is revoked scoped to the fork point (BC-3 — pre-fork
+    trunk events that replicate late still verify), the resolution is recorded durably on the
+    evidence row, and admission resumes for the chosen chain. Nothing here is automatic; no
+    timeout, no retry count, no arrival order ever unfreezes an origin.
+
+    Phase-0 boundary (named): `chosen_head` must be the HELD branch. Adopting a rival chain over
+    an already-held tail is an authority-level history decision (append-only storage cannot drop
+    the tail locally) — that machinery is step 10. Refused here, never silently attempted."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT held_event_id, rival_key_ref FROM security_fork_evidence "
+            "WHERE origin_node=%s AND origin_seq=%s AND frozen",
+            (origin_node, origin_seq),
+        )
+        rows = cur.fetchall()
+        if not rows:
+            raise ValueError(f"no frozen fork evidence at ({origin_node!r}, {origin_seq})")
+        for held_event_id, rival_key_ref in rows:
+            if chosen_head != held_event_id:
+                raise ValueError(
+                    "Phase-0 resolve_fork can only keep the held branch — adopting a rival chain "
+                    "over held history is a step-10 authority decision (append-only storage "
+                    "cannot rewrite the tail)"
+                )
+            if rival_key_ref is not None:
+                trust.revoke(rival_key_ref, from_seq=origin_seq)   # BC-3: scoped, not total
+        cur.execute(
+            "UPDATE security_fork_evidence SET frozen=false, resolved_by=%s, "
+            "resolved_at=clock_timestamp(), chosen_head=%s, reason=%s "
+            "WHERE origin_node=%s AND origin_seq=%s AND frozen",
+            (operator_ref, chosen_head, reason, origin_node, origin_seq),
+        )
+    conn.commit()

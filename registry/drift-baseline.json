@@ -5,6 +5,7 @@
     "C4-docset|document-versioning-and-reading-path-v0.1.md|current doc listed in matrix+readme but missing from spec-26",
     "C4-docset|memory-broker-architecture-evidence-v0.1.md|current doc listed in matrix+readme but missing from spec-26",
     "C4-docset|mcp-participant-introduction-v0.1.md|current doc listed in matrix+spec-26 but missing from readme",
-    "C4-docset|wake-pull-coordination-v0.1.md|current doc listed in matrix+spec-26 but missing from readme"
+    "C4-docset|wake-pull-coordination-v0.1.md|current doc listed in matrix+spec-26 but missing from readme",
+    "C4-docset|node-identity-and-incarnation-v0.1.md|current doc listed in matrix+spec-26 but missing from readme"
   ]
 }
