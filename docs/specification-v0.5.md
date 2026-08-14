@@ -1292,6 +1292,7 @@ apart silently — the C4 document-set lint compares all three):
 ```text
 approval-binding-v0.1.md
 architecture-adversarial-review-v0.2.md
+authority-cells-v0.1.md
 architecture-review-findings-v0.1.md
 consistency-and-authority-v0.1.md
 console-read-model-v0.1.md

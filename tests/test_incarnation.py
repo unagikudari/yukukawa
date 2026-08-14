@@ -14,12 +14,12 @@ from kawa.domain.events import Event, PlanCreated
 from kawa.domain.identity import IdentityContext
 from kawa.domain.ids import digest, event_hash
 from kawa.domain.trust import TrustRegistry, genesis_incarnation
+from kawa.storage.authority_gate import AuthorityRefused, resolve_fork
 from kawa.storage.replication import (
     admit_batch,
     check_incarnation_contiguity,
     incarnation_intervals,
     pull,
-    resolve_fork,
 )
 
 psycopg = pytest.importorskip("psycopg")
@@ -278,7 +278,37 @@ def test_unauthenticated_junk_cannot_freeze(conn_a, conn_b, node_a, tmp_path) ->
 
 # ---------------- 8B: resolve_fork ----------------
 
-def test_resolve_fork_keep_held_scoped_revocation_and_no_auto_unfreeze(conn_a, conn_b, node_a) -> None:  # type: ignore[no-untyped-def]
+def _one_member_cell(kawa_b, cred_b, conn_b):  # type: ignore[no-untyped-def]
+    """A 1-member genesis Cell for fork resolution ON THE RESOLVING NODE (the Phase-0
+    fleet shape, #118), plus a helper to mint receipts under it."""
+    from kawa.domain.authority import (
+        FORK_RESOLUTION_KEY, configuration_coordinate_digest,
+        fork_resolution_operation_digest, make_proof)
+    from kawa.domain.events import AuthorityConfiguration, AuthorityReceipt
+    cd = configuration_coordinate_digest(authority_key=FORK_RESOLUTION_KEY, authority_epoch=0,
+                                         members=[cred_b.signing_key_ref], quorum=1,
+                                         prior_configuration_digest=None)
+    kawa_b._emit_reduce(AuthorityConfiguration(
+        authority_key=FORK_RESOLUTION_KEY, configuration_digest=cd, authority_epoch=0,
+        members=[cred_b.signing_key_ref], quorum=1, succession_proof=make_proof(cd, [cred_b])))
+    conn_b.commit()
+
+    def receipt_for(origin_node, origin_seq, chosen_head):  # type: ignore[no-untyped-def]
+        op = fork_resolution_operation_digest(origin_node=origin_node, origin_seq=origin_seq,
+                                              chosen_head=chosen_head,
+                                              configuration_digest=cd, policy_digest=None)
+        ev = kawa_b._emit_reduce(AuthorityReceipt(
+            authority_key=FORK_RESOLUTION_KEY, operation_digest=op, configuration_digest=cd,
+            authority_epoch=0, quorum_proof=make_proof(op, [cred_b])))
+        conn_b.commit()
+        return ev.event_id
+
+    return receipt_for
+
+
+def test_resolve_fork_is_a_cp_operation(conn_a, conn_b, node_a, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """#118 10C (D1): fork-freeze release requires a VALID AuthorityReceipt — receipt-first,
+    operation-bound, idempotent (BC-2), with NO operator fallback."""
     kawa, cred, keys, trust = node_a
     kawa.create_plan("p1", "kawa", "trunk 1")
     kawa.create_plan("p2", "kawa", "trunk 2")
@@ -288,20 +318,46 @@ def test_resolve_fork_keep_held_scoped_revocation_and_no_auto_unfreeze(conn_a, c
     rival = _rival("node-a", 3, _prev_hash(conn_b, "node-a", 2), cred)
     admit_batch(conn_b, [rival], keys=keys, trust=trust)
     held_head = _prev_hash(conn_b, "node-a", 3)
-    # only the explicit operator action releases; rival-branch adoption is refused (step 10)
-    with pytest.raises(ValueError, match="held branch"):
+    # B's own resolving authority: a 1-member genesis Cell held by B's node credential
+    cred_b = load_or_create_local_node(str(tmp_path / "node-b.json"), node_ref="node-b")
+    keys.register(cred_b.signing_key_ref, cred_b.public_pem())
+    trust.enroll("node-b", cred_b.signing_key_ref)
+    kawa_b = Kawa(conn_b, identity=IdentityContext.from_local_node(cred_b, actor_ref="op-b"),
+                  default_scope=None)
+    receipt_for = _one_member_cell(kawa_b, cred_b, conn_b)
+    # no receipt → frozen stays frozen (INCOMPLETE never exercises, BC-3)
+    with pytest.raises(AuthorityRefused, match="incomplete"):
         resolve_fork(conn_b, trust, origin_node="node-a", origin_seq=3,
-                     chosen_head=rival.event_id, operator_ref="op", reason="wrong pick")
+                     chosen_head=held_head, receipt_event_id="sha256:" + "0" * 64, keys=keys)
+    # a receipt bound to a DIFFERENT operation does not exercise (operation binding)
+    wrong = receipt_for("node-a", 3, rival.event_id)
+    with pytest.raises(AuthorityRefused, match="rival_adoption_deferred|operation_mismatch"):
+        resolve_fork(conn_b, trust, origin_node="node-a", origin_seq=3,
+                     chosen_head=rival.event_id, receipt_event_id=wrong, keys=keys)
+    with pytest.raises(AuthorityRefused, match="operation_mismatch"):
+        resolve_fork(conn_b, trust, origin_node="node-a", origin_seq=3,
+                     chosen_head=held_head, receipt_event_id=wrong, keys=keys)
+    # the VALID, correctly-bound receipt resolves — keep-held only (D2 still deferred)
+    ok = receipt_for("node-a", 3, held_head)
     resolve_fork(conn_b, trust, origin_node="node-a", origin_seq=3,
-                 chosen_head=held_head, operator_ref="op", reason="clone detected, keep held")
-    assert all(not row[3] for row in _evidence(conn_b))       # unfrozen, audited
-    # BC-3: the losing key (the equivocating incarnation's key) is revoked FROM the fork —
-    # a lagging replica can still verify the pre-fork trunk it never saw
+                 chosen_head=held_head, receipt_event_id=ok, keys=keys,
+                 reason="clone detected, keep held")
+    assert all(not row[3] for row in _evidence(conn_b))       # unfrozen, audited by receipt
+    # BC-2: idempotent replay under the SAME receipt completes as a no-op
+    resolve_fork(conn_b, trust, origin_node="node-a", origin_seq=3,
+                 chosen_head=held_head, receipt_event_id=ok, keys=keys)
+    # a consumed fork point can never be re-decided (consume-once)
+    other = receipt_for("node-a", 3, held_head)
+    with pytest.raises(AuthorityRefused, match="already_resolved"):
+        resolve_fork(conn_b, trust, origin_node="node-a", origin_seq=3,
+                     chosen_head=held_head, receipt_event_id=other, keys=keys)
+    # BC-3 (step 8): the losing key is revoked FROM the fork — a lagging replica still
+    # verifies the pre-fork trunk it never saw
     assert trust.standing(cred.signing_key_ref) == "revoked"
     assert trust.standing(cred.signing_key_ref, at_seq=2) == "active"
     with conn_b.cursor() as cur:                              # lagging replica: fresh, empty B-side
         cur.execute(f"TRUNCATE {_ALL}")
     conn_b.commit()
     r = pull(conn_b, conn_a, keys=keys, trust=trust)
-    assert len(r.admitted) == 2                               # seq 1..2 trunk verified (BC-3)
+    assert len(r.admitted) == 2                               # seq 1..2 trunk verified
     assert {x.reason for x in r.rejected} == {"trust_revoked"}  # seq 3+ stays distrusted

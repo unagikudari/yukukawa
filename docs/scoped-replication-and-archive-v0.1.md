@@ -96,4 +96,4 @@ tests/test_envelope_v2.py     downgrade triple-negative, single-derivation struc
 
 ## 7. Status discipline (§25)
 
-REALIZED+TESTED: §1, §2 (9a). DESIGNED/PLANNED: §3 (9b), §4 (9c) — present here so the three PRs share one normative home; each flips to REALIZED as its PR lands. DEFERRED, named: scope-name salting (envelope v3), payload field-level redaction, metadata side channels (volume/timing), grant governance (step 10), retention/pruning policy.
+REALIZED+TESTED: §1–§4 (9a #115, 9b #116, 9c #117 — all merged; D8 fix, #118). DEFERRED, named: scope-name salting (envelope v3), payload field-level redaction, metadata side channels (volume/timing), grant governance (step 10's D4, re-deferred to the membership/governance addendum), retention/pruning policy.

@@ -34,7 +34,8 @@ mcp-contract-v0.2.md
 mcp-participant-introduction-v0.1.md  (Phase-0 §16 realized, #106)
 wake-pull-coordination-v0.1.md  (Phase-0 §7 realized + ghost fix, #108)
 node-identity-and-incarnation-v0.1.md  (Phase-0 §13 realized + 2-node replication, #111)
-scoped-replication-and-archive-v0.1.md  (step 9: §11/§12 — 9a realized, 9b/9c planned, #113)
+scoped-replication-and-archive-v0.1.md  (step 9: §11/§12 realized, #113)
+authority-cells-v0.1.md  (step 10: FROZEN-slab Phase-0 realized, #118)
   supersedes mcp-contract-v0.1.md
 
 wizard-error-guidance-v0.2.md

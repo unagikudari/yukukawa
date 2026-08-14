@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 import psycopg
 
-from kawa.domain.events import Event, EventKind
+from kawa.domain.events import AuthorityConfiguration, Event, EventKind
 from kawa.domain.credential import PublicKeyRegistry
 from kawa.domain.ids import HLC, scope_digest_of
 from kawa.domain.trust import TrustRegistry, admit, evaluate
@@ -326,6 +326,7 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
             if not e.is_stub:                  # the ONE materialization predicate: a stub admits
                 _insert_payload(cur, e)        # envelope-only, advances the head, and is
                 reduce(cur, e)                 # reducer-inert until upgraded (#113 9a)
+                _authority_genesis_watch(cur, e, keys, report_rejected)
             heads[e.origin_node] = (e.origin_seq, e.self_hash)
             if clock is not None:
                 clock.update(e.hlc)            # happens-before: our next emit orders after what we saw
@@ -356,6 +357,43 @@ def pull(dest: psycopg.Connection, source: psycopg.Connection, *, keys: PublicKe
         stream = stream + read_positions(source, held_stub_positions(dest, scopes))
     return admit_batch(dest, serve_batch(stream, offer),
                        keys=keys, trust=trust, clock=clock, requested_scopes=requested)
+
+
+def _authority_genesis_watch(cur: psycopg.Cursor, e: Event, keys: PublicKeyRegistry,
+                             report_rejected: list[Rejection]) -> None:
+    """BC-1 at admission (#118 PR 3), reconciled with chain continuity: an authority
+    genesis event is ADMITTED like any event (dropping a mid-chain event would break the
+    origin's gap-free stream and grief the whole origin — a worse outcome than the one
+    BC-1 exists to prevent), but its facial validity is judged HERE, loudly:
+
+      - an unproven genesis (no founding-quorum signatures) is REPORTED as
+        `authority_genesis_unproven` — it is admitted history that the verifier will
+        never count (noise, per the PR-2 facially-valid rule); a stranger gains nothing.
+      - a SECOND facially-valid genesis for a held key is the rev-2 (b) administrative
+        conflict: recorded durably in `security_authority_conflict` and reported —
+        BOTH lines stay blocked at verify time, no last-wins, no second live Cell.
+    """
+    from kawa.domain.authority import _facially_valid_genesis
+    p = e.payload
+    if not isinstance(p, AuthorityConfiguration) or p.prior_configuration_digest is not None:
+        return
+    if not _facially_valid_genesis(p, keys):
+        report_rejected.append(Rejection(e.event_id, e.origin_node, e.origin_seq,
+                                         "authority_genesis_unproven"))
+        return
+    cur.execute(
+        "SELECT configuration_digest FROM event_authority_configuration "
+        "WHERE authority_key=%s AND prior_configuration_digest IS NULL "
+        "AND configuration_digest <> %s",
+        (p.authority_key, p.configuration_digest))
+    for (other,) in cur.fetchall():
+        a, b = sorted([other, p.configuration_digest])
+        cur.execute(
+            "INSERT INTO security_authority_conflict (authority_key, digest_a, digest_b) "
+            "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+            (p.authority_key, a, b))
+        report_rejected.append(Rejection(e.event_id, e.origin_node, e.origin_seq,
+                                         "authority_genesis_conflict"))
 
 
 def incarnation_intervals(conn: psycopg.Connection, trust: TrustRegistry,
@@ -392,39 +430,6 @@ def check_incarnation_contiguity(intervals: list[tuple[str | None, int, int]]) -
     return violations
 
 
-def resolve_fork(conn: psycopg.Connection, trust: TrustRegistry, *, origin_node: str,
-                 origin_seq: int, chosen_head: str, operator_ref: str, reason: str) -> None:
-    """The ONLY release path for a frozen origin — an explicit, audited operator action (#111 8B).
-    Forward-only: the losing branch's key is revoked scoped to the fork point (BC-3 — pre-fork
-    trunk events that replicate late still verify), the resolution is recorded durably on the
-    evidence row, and admission resumes for the chosen chain. Nothing here is automatic; no
-    timeout, no retry count, no arrival order ever unfreezes an origin.
-
-    Phase-0 boundary (named): `chosen_head` must be the HELD branch. Adopting a rival chain over
-    an already-held tail is an authority-level history decision (append-only storage cannot drop
-    the tail locally) — that machinery is step 10. Refused here, never silently attempted."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT held_event_id, rival_key_ref FROM security_fork_evidence "
-            "WHERE origin_node=%s AND origin_seq=%s AND frozen",
-            (origin_node, origin_seq),
-        )
-        rows = cur.fetchall()
-        if not rows:
-            raise ValueError(f"no frozen fork evidence at ({origin_node!r}, {origin_seq})")
-        for held_event_id, rival_key_ref in rows:
-            if chosen_head != held_event_id:
-                raise ValueError(
-                    "Phase-0 resolve_fork can only keep the held branch — adopting a rival chain "
-                    "over held history is a step-10 authority decision (append-only storage "
-                    "cannot rewrite the tail)"
-                )
-            if rival_key_ref is not None:
-                trust.revoke(rival_key_ref, from_seq=origin_seq)   # BC-3: scoped, not total
-        cur.execute(
-            "UPDATE security_fork_evidence SET frozen=false, resolved_by=%s, "
-            "resolved_at=clock_timestamp(), chosen_head=%s, reason=%s "
-            "WHERE origin_node=%s AND origin_seq=%s AND frozen",
-            (operator_ref, chosen_head, reason, origin_node, origin_seq),
-        )
-    conn.commit()
+# resolve_fork moved to kawa/storage/authority_gate.py in step 10 (#118 10C, D1):
+# fork-freeze release is a CP operation requiring a VALID AuthorityReceipt. The bare
+# operator path was REMOVED — no receipt, no unfreeze, no fallback.

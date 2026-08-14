@@ -28,7 +28,8 @@ _ALL = (
     # step 8/9/10: admission consults fork evidence (durable freeze), so isolation must
     # clear it, and archive custody evidence + authority payload tables likewise
     "security_fork_evidence, result_occurrence_quarantine, security_archive_segment, "
-    "event_authority_configuration, event_authority_receipt"
+    "event_authority_configuration, event_authority_receipt, policy_lineage, "
+    "security_authority_conflict"
 )
 
 
