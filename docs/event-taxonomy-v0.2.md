@@ -38,6 +38,7 @@ review.*
 finding.*
 approval.*
 result.*
+authority.*
 ```
 
 `Fact` and `Work` remain projections, not stable Domain Event families.
@@ -215,6 +216,30 @@ revokes     -> approval.granted Event
 
 Cryptographic scope/revision binding belongs to the Security plane.
 
+### Authority
+
+```text
+authority.configuration
+authority.receipt
+```
+
+Added by roadmap step 10 (#118, realizing the FROZEN `consistency-and-authority-v0.1.md`):
+authority is **event-sourced**. `authority.configuration` records one link of a key's
+succession chain (genesis or proven successor — the founding/parent members' signatures
+ride in the payload); `authority.receipt` records a CP operation's acceptance carrying an
+accountable quorum proof. Both are PROOF material: their admission proves provenance and
+replicates the verifier's chain source; **authority standing is computed by the
+three-state verifier at read time, never by a reducer** — no projection moves on these
+events, and a Receipt's presence in the log is not authority.
+
+For `authority.receipt`:
+
+```text
+operation_digest  = canonical machine-stable bytes ONLY (never free prose)
+quorum_proof      = signer set + individual signatures (accountable; bare aggregates
+                    are non-conforming — slab §8)
+```
+
 ### Result
 
 ```text
@@ -352,9 +377,12 @@ approval.granted
 approval.revoked
 
 result.recorded
+
+authority.configuration
+authority.receipt
 ```
 
-Total: **20 stable Domain Event types**.
+Total: **22 stable Domain Event types**.
 
 The count is descriptive, not a target. Fewer stable semantics are preferred when meaning remains complete.
 

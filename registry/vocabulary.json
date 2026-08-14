@@ -23,7 +23,9 @@
     "approval.revoked",
     "result.recorded",
     "link.asserted",
-    "work.retired"
+    "work.retired",
+    "authority.configuration",
+    "authority.receipt"
   ],
   "non_event_dotted_allow": [
     "plan.ready",

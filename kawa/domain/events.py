@@ -23,6 +23,9 @@ class EventKind(str, Enum):
     OBSERVATION_RECORDED = "observation.recorded"
     CLAIM_RECORDED = "claim.recorded"
     WORK_RETIRED = "work.retired"
+    # step 10 (#118): authority is event-sourced — configurations and Receipts ARE history
+    AUTHORITY_CONFIGURATION = "authority.configuration"
+    AUTHORITY_RECEIPT = "authority.receipt"
 
 
 # v0.5 §5 semantic relations + the two coordination relations 0001 carried.
@@ -190,9 +193,52 @@ class ClaimRecorded(_Payload):
     basis_note: str | None = None
 
 
+class AuthorityConfiguration(_Payload):
+    """One configuration in an authority key's succession chain (#118 10A; slab §4).
+
+    Genesis (epoch 0) carries `prior_configuration_digest=None` and its OWN members'
+    signatures as the succession proof (BC-1: a genesis is admissible only under its
+    founding members' signatures — an unsigned genesis is dropped at admission, so a
+    stranger cannot grief an existing Cell into `authority_genesis_conflict`). A successor
+    carries the PARENT quorum's signatures over `configuration_digest`, and Phase-0
+    succession must preserve the member set exactly (BC-4 — membership change is a named
+    future addendum). Replicated like all history: verifiers fetch the chain, never a
+    mutable members table."""
+
+    kind: Literal[EventKind.AUTHORITY_CONFIGURATION] = EventKind.AUTHORITY_CONFIGURATION
+    authority_key: str
+    configuration_digest: str            # content digest of the canonical config coordinate
+    authority_epoch: int
+    members: list[str]                   # node signing-key refs — the accountable signer pool
+    quorum: int
+    prior_configuration_digest: str | None = None
+    succession_proof: str | None = None  # canonical-json {signer_set:[key_ref], signatures:[hex]}
+
+
+class AuthorityReceipt(_Payload):
+    """A CP operation's acceptance — a committed Event carrying a quorum proof (slab §5).
+
+    The proof relationships are the contract: statement binding (`operation_digest`,
+    canonical bytes only — never free prose), configuration lineage, pinned policy, and an
+    ACCOUNTABLE quorum proof (signer set + individual signatures; bare aggregates are
+    non-conforming, slab §8). Verification is three-state (VALID/INVALID/INCOMPLETE) and
+    lives in the domain verifier — a Receipt event's admission proves provenance, never
+    authority standing."""
+
+    kind: Literal[EventKind.AUTHORITY_RECEIPT] = EventKind.AUTHORITY_RECEIPT
+    authority_key: str
+    operation_digest: str
+    configuration_digest: str
+    authority_epoch: int
+    prior_authority_receipt_digest: str | None = None
+    policy_digest: str | None = None
+    quorum_proof: str = ""               # canonical-json {signer_set:[key_ref], signatures:[hex]}
+
+
 Payload = Annotated[
     Union[PlanCreated, PlanLifecycleChanged, WorkDerived, WorkDependencyDeclared, ResultRecorded,
-          LinkAsserted, ObservationRecorded, ClaimRecorded, WorkRetired],
+          LinkAsserted, ObservationRecorded, ClaimRecorded, WorkRetired,
+          AuthorityConfiguration, AuthorityReceipt],
     Field(discriminator="kind"),
 ]
 

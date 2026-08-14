@@ -5,9 +5,13 @@ equivalent state (the read-model contract). Reducers are the ONLY writers of cur
 """
 from __future__ import annotations
 
+import json
+
 import psycopg
 
 from kawa.domain.events import (
+    AuthorityConfiguration,
+    AuthorityReceipt,
     ClaimRecorded,
     Event,
     EventKind,
@@ -195,6 +199,12 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
             (event.event_id, event.event_id),
         )
         touched_links = True
+    elif isinstance(p, (AuthorityConfiguration, AuthorityReceipt)):
+        # Authority events are PROOF material, not Domain state: admission stores them
+        # (the typed payload row is the verifier's chain source); no projection moves.
+        # Standing is computed by the three-state verifier at read time — a Receipt's
+        # admission proves provenance, never authority (#118 10B).
+        pass
     else:  # pragma: no cover
         raise RuntimeError(f"no reducer for {type(p).__name__}")
 
@@ -393,6 +403,24 @@ def _load_payload(cur: psycopg.Cursor, event_id: str, kind: str) -> Payload:
         work_ref, outcome, result_ref, summary, occurrence_key = cur.fetchone()
         return ResultRecorded(work_ref=work_ref, outcome=outcome, result_ref=result_ref,
                               summary=summary, occurrence_key=occurrence_key)
+    if kind == EventKind.AUTHORITY_CONFIGURATION.value:
+        cur.execute("SELECT authority_key, configuration_digest, authority_epoch, members, "
+                    "quorum, prior_configuration_digest, succession_proof "
+                    "FROM event_authority_configuration WHERE event_id=%s", (event_id,))
+        akey, cdig, epoch, members, quorum, prior, proof = cur.fetchone()
+        return AuthorityConfiguration(authority_key=akey, configuration_digest=cdig,
+                                      authority_epoch=epoch, members=json.loads(members),
+                                      quorum=quorum, prior_configuration_digest=prior,
+                                      succession_proof=proof)
+    if kind == EventKind.AUTHORITY_RECEIPT.value:
+        cur.execute("SELECT authority_key, operation_digest, configuration_digest, "
+                    "authority_epoch, prior_authority_receipt_digest, policy_digest, quorum_proof "
+                    "FROM event_authority_receipt WHERE event_id=%s", (event_id,))
+        akey, odig, cdig, epoch, prior, pol, proof = cur.fetchone()
+        return AuthorityReceipt(authority_key=akey, operation_digest=odig,
+                                configuration_digest=cdig, authority_epoch=epoch,
+                                prior_authority_receipt_digest=prior, policy_digest=pol,
+                                quorum_proof=proof)
     if kind == EventKind.LINK_ASSERTED.value:
         cur.execute("SELECT source_ref, relation, target_ref FROM event_link WHERE event_id=%s", (event_id,))
         source_ref, relation, target_ref = cur.fetchone()

@@ -187,6 +187,9 @@ def test_no_domain_footprint() -> None:  # type: ignore[no-untyped-def]
     # step-7 coordination adds NO Domain event kind (claim.recorded is the step-2 EPISTEMIC
     # Claim, an unrelated concept — the work-claim/lease/wake are pure in-memory coordination)
     assert "wake.emitted" not in kinds and "work.claimed" not in kinds and "lease.granted" not in kinds
+    # the full set changes ONLY through a plan gate: step 10 (#118) added the two authority
+    # kinds via the vocabulary SoT — coordination still added nothing
     assert kinds == {"plan.created", "plan.lifecycle_changed", "work.derived",
                      "work.dependency_declared", "result.recorded", "link.asserted",
-                     "observation.recorded", "claim.recorded", "work.retired"}   # unchanged set
+                     "observation.recorded", "claim.recorded", "work.retired",
+                     "authority.configuration", "authority.receipt"}

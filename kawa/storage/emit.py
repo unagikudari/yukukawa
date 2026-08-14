@@ -14,6 +14,8 @@ from __future__ import annotations
 import psycopg
 
 from kawa.domain.events import (
+    AuthorityConfiguration,
+    AuthorityReceipt,
     ClaimRecorded,
     Event,
     LinkAsserted,
@@ -26,7 +28,7 @@ from kawa.domain.events import (
     WorkDerived,
     WorkRetired,
 )
-from kawa.domain.ids import HLC, digest, event_hash, scope_digest_of
+from kawa.domain.ids import HLC, canonical_json, digest, event_hash, scope_digest_of
 from kawa.domain.identity import IdentityContext
 
 
@@ -193,6 +195,24 @@ def _insert_payload(cur: psycopg.Cursor, event: Event) -> None:
         cur.execute(
             "INSERT INTO event_claim (event_id, proposition, basis_note) VALUES (%s,%s,%s)",
             (eid, p.proposition, p.basis_note),
+        )
+    elif isinstance(p, AuthorityConfiguration):
+        cur.execute(
+            "INSERT INTO event_authority_configuration (event_id, authority_key, "
+            "configuration_digest, authority_epoch, members, quorum, "
+            "prior_configuration_digest, succession_proof) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (eid, p.authority_key, p.configuration_digest, p.authority_epoch,
+             canonical_json(p.members), p.quorum, p.prior_configuration_digest,
+             p.succession_proof),
+        )
+    elif isinstance(p, AuthorityReceipt):
+        cur.execute(
+            "INSERT INTO event_authority_receipt (event_id, authority_key, operation_digest, "
+            "configuration_digest, authority_epoch, prior_authority_receipt_digest, "
+            "policy_digest, quorum_proof) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (eid, p.authority_key, p.operation_digest, p.configuration_digest,
+             p.authority_epoch, p.prior_authority_receipt_digest, p.policy_digest,
+             p.quorum_proof),
         )
     else:  # pragma: no cover - exhaustive over Payload union
         raise RuntimeError(f"no payload writer for {type(p).__name__}")
