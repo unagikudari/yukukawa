@@ -1315,6 +1315,7 @@ memory-broker-extend-vs-kawa-v0.1.md
 memory-broker-migration-coexistence-v0.1.md
 node-identity-and-incarnation-v0.1.md
 operation-effect-identity-v0.8.md
+scoped-replication-and-archive-v0.1.md
 postgresql-physical-schema-v0.3.md
 prototype-vertical-slice-v0.1.md
 reducer-projection-contract-v0.2.md

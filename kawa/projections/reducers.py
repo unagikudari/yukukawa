@@ -332,18 +332,24 @@ def load_events(conn: psycopg.Connection) -> list[Event]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT event_id, origin_node, origin_seq, hlc, kind, subject_ref, actor_ref, "
-            "policy_digest, payload_digest, prev_hash, self_hash FROM events "
+            "policy_digest, payload_digest, prev_hash, self_hash, "
+            "envelope_version, scope_ref, scope_digest, materialized FROM events "
             "ORDER BY origin_node, origin_seq"
         )
         rows = cur.fetchall()
-        for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh) in rows:
-            payload = _load_payload(cur, eid, kind)
+        for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh,
+             ever, sref, sdig, mat) in rows:
+            # the ONE materialization predicate (#113 9a): a stub reconstructs as a stub —
+            # rebuild verifies its envelope but never invents domain effects from it
+            payload = _load_payload(cur, eid, kind) if mat else None
             out.append(
                 Event(
                     event_id=eid, origin_node=onode, origin_seq=oseq, hlc=hlc,
                     kind=EventKind(kind), subject_ref=str(subj) if subj else None,
                     actor_ref=actor, policy_digest=pol, payload_digest=pd,
-                    prev_hash=prev, self_hash=sh, payload=payload,
+                    prev_hash=prev, self_hash=sh,
+                    envelope_version=ever, scope_ref=sref, scope_digest=sdig,
+                    payload=payload,
                 )
             )
     return out
@@ -425,6 +431,8 @@ def rebuild(conn: psycopg.Connection) -> int:
     for event in events:
         if not event.verify():
             raise RuntimeError(f"replay integrity: event {event.event_id} failed verify")
+        if event.is_stub:
+            continue        # same predicate as admission (#113 9a): stubs verify, never reduce
         with conn.cursor() as cur:
             reduce(cur, event)
     conn.commit()

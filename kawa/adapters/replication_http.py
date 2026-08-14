@@ -34,7 +34,14 @@ import psycopg
 from kawa.domain.credential import NodeCredential, PublicKeyRegistry, resolve_and_verify_provenance
 from kawa.domain.ids import HLC, digest
 from kawa.domain.trust import TrustRegistry
-from kawa.storage.replication import PullReport, Rejection, admit_batch, frontier, read_stream
+from kawa.storage.replication import (
+    PullReport,
+    Rejection,
+    admit_batch,
+    frontier,
+    read_stream,
+    serve_batch,
+)
 from kawa.storage.wire import WireVerificationError, from_wire, to_wire
 
 FRESHNESS_WINDOW_SECONDS = 60
@@ -151,7 +158,8 @@ def serve(dsn: str, authorizer: PullAuthorizer, host: str = "127.0.0.1",
                 return
             with psycopg.connect(dsn) as conn:
                 events = read_stream(conn, {k: int(v) for k, v in body["frontier"].items()})
-            self._json(200, {"events": [to_wire(e) for e in events]})
+            # node boundary: withhold per the step-9a rule (all v2 — grants arrive in 9b)
+            self._json(200, {"events": [to_wire(e) for e in serve_batch(events)]})
 
         def log_message(self, *a: object) -> None:  # quiet
             pass

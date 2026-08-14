@@ -57,22 +57,47 @@ def event_hash(
     policy_digest: str | None,
     payload_digest: str,
     prev_hash: str | None,
+    envelope_version: int = 1,
+    scope_digest: str | None = None,
 ) -> str:
     """Per-origin hash-chain link. self_hash binds the envelope + prev_hash, so any tamper
-    or reordering within an origin's stream is detectable (emit-enforcement)."""
-    return digest(
-        {
-            "origin_node": origin_node,
-            "origin_seq": origin_seq,
-            "hlc": hlc,
-            "kind": kind,
-            "subject_ref": subject_ref,
-            "actor_ref": actor_ref,
-            "policy_digest": policy_digest,
-            "payload_digest": payload_digest,
-            "prev_hash": prev_hash,
-        }
-    )
+    or reordering within an origin's stream is detectable (emit-enforcement).
+
+    THE single derivation for every path — emit VERIFY, admission, rebuild replay, and wire
+    verification all come through here (#113 (a): no second implementation may exist).
+
+    Versioned preimages (#113 rev 2, normative):
+      v1  the original nine-field dict (sealed forever — pre-step-9 identities never change)
+      v2  v1 fields + {"envelope_version": 2, "scope_digest": sha256-of-scope_ref-or-None}
+    The version is INSIDE the v2 preimage, so a v2 envelope re-presented as v1 (or a v1 as
+    v2) derives a different hash than its event_id — downgrade/upgrade forgery is a hash
+    mismatch, not a policy check. A v1 envelope carrying a scope is structurally invalid
+    and is rejected by the caller before hashing (Event.verify / wire)."""
+    preimage: dict[str, object] = {
+        "origin_node": origin_node,
+        "origin_seq": origin_seq,
+        "hlc": hlc,
+        "kind": kind,
+        "subject_ref": subject_ref,
+        "actor_ref": actor_ref,
+        "policy_digest": policy_digest,
+        "payload_digest": payload_digest,
+        "prev_hash": prev_hash,
+    }
+    if envelope_version == 1:
+        return digest(preimage)
+    if envelope_version == 2:
+        preimage["envelope_version"] = 2
+        preimage["scope_digest"] = scope_digest
+        return digest(preimage)
+    raise ValueError(f"unknown envelope_version {envelope_version!r} — refuse, never guess")
+
+
+def scope_digest_of(scope_ref: str) -> str:
+    """The pseudonymous per-scope marker committed by the v2 preimage (#113 rev 2 OQ3):
+    stable so filtering works, digest so stubs need not name the scope. Dictionary attacks
+    on guessable scope names are possible and stated; salting is envelope-v3 territory."""
+    return "sha256:" + hashlib.sha256(scope_ref.encode("utf-8")).hexdigest()
 
 
 @dataclass

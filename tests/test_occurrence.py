@@ -80,9 +80,11 @@ def test_no_new_hashed_envelope_column(conn_a) -> None:  # type: ignore[no-untyp
         cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='events'")
         events_cols = {r[0] for r in cur.fetchall()}
     assert "occurrence_key" not in events_cols
+    # the hash inputs are the v1 nine + step-9a's versioned pair (#113 (a)) — and never
+    # occurrence_key, which stays a payload-table concern
     assert set(inspect.signature(event_hash).parameters) == {
         "origin_node", "origin_seq", "hlc", "kind", "subject_ref", "actor_ref",
-        "policy_digest", "payload_digest", "prev_hash",
+        "policy_digest", "payload_digest", "prev_hash", "envelope_version", "scope_digest",
     }
 
 

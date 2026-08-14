@@ -26,7 +26,7 @@ from kawa.domain.events import (
     WorkDerived,
     WorkRetired,
 )
-from kawa.domain.ids import HLC, digest, event_hash
+from kawa.domain.ids import HLC, digest, event_hash, scope_digest_of
 from kawa.domain.identity import IdentityContext
 
 
@@ -44,7 +44,12 @@ class Emitter:
         *,
         subject_ref: str | None = None,
         policy_digest: str | None = None,
+        scope_ref: str | None = None,
     ) -> Event:
+        """`scope_ref` (#113 9a): opt-in — passing it stamps an envelope-v2 event whose hash
+        commits to `scope_digest_of(scope_ref)`. Omitted → v1, byte-identical to pre-step-9
+        behavior (the BC-iii transition: the least-visible v2 default flips in 9b, atomically
+        with the fleet-scope grants — never here)."""
         with self.conn.cursor() as cur:
             # SERIALIZE: one appender per origin at a time (txn-scoped lock).
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (self.origin_node,))
@@ -59,6 +64,8 @@ class Emitter:
 
             hlc = self.hlc.tick()
             payload_digest = digest(payload.model_dump(mode="json"))
+            envelope_version = 2 if scope_ref is not None else 1
+            scope_digest = scope_digest_of(scope_ref) if scope_ref is not None else None
             self_hash = event_hash(
                 origin_node=self.origin_node,
                 origin_seq=origin_seq,
@@ -69,6 +76,8 @@ class Emitter:
                 policy_digest=policy_digest,
                 payload_digest=payload_digest,
                 prev_hash=prev_hash,
+                envelope_version=envelope_version,
+                scope_digest=scope_digest,
             )
             # attest provenance: sign the canonical content_hash (= self_hash). Signature is NOT
             # identity (event_id stays = content_hash) and is NOT fed back into the hash. Absent when
@@ -89,6 +98,9 @@ class Emitter:
                 payload_digest=payload_digest,
                 prev_hash=prev_hash,
                 self_hash=self_hash,
+                envelope_version=envelope_version,
+                scope_ref=scope_ref,
+                scope_digest=scope_digest,
                 signature=signature,
                 signing_key_ref=signing_key_ref,
                 signature_scheme=signature_scheme,
@@ -101,12 +113,14 @@ class Emitter:
             cur.execute(
                 "INSERT INTO events (event_id, origin_node, origin_seq, hlc, kind, subject_ref, "
                 "actor_ref, policy_digest, payload_digest, prev_hash, self_hash, "
+                "envelope_version, scope_ref, scope_digest, "
                 "signature, signing_key_ref, signature_scheme) "
-                "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     event.event_id, event.origin_node, event.origin_seq, event.hlc,
                     event.kind.value, event.subject_ref, event.actor_ref, event.policy_digest,
                     event.payload_digest, event.prev_hash, event.self_hash,
+                    event.envelope_version, event.scope_ref, event.scope_digest,
                     event.signature, event.signing_key_ref, event.signature_scheme,
                 ),
             )

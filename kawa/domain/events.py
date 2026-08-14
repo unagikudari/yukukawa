@@ -198,7 +198,13 @@ Payload = Annotated[
 
 
 class Event(BaseModel):
-    """A committed Event envelope. `event_id == self_hash` (content-addressed, chain-linked)."""
+    """A committed Event envelope. `event_id == self_hash` (content-addressed, chain-linked).
+
+    Step 9a (#113): the envelope is versioned (v2 commits to `scope_digest`), and `payload`
+    is nullable — a None payload is a **stub**: an origin-signed envelope whose bytes this
+    node does not hold. A stub proves ONLY that the origin committed to `payload_digest` at
+    this chain position — never byte possession or content knowledge. Stubs chain, verify,
+    and replicate; they are reducer-inert until upgraded (admission byte-verifies on upgrade)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -213,15 +219,34 @@ class Event(BaseModel):
     payload_digest: str
     prev_hash: str | None
     self_hash: str
+    # step 9a (#113): versioned envelope + scope commitment. scope_ref is v2 cleartext
+    # (absent on stubs and unscoped events); scope_digest is what the v2 hash commits to.
+    envelope_version: int = 1
+    scope_ref: str | None = None
+    scope_digest: str | None = None
     # provenance (Phase 4A) — over content_hash (= self_hash); NEVER part of Event identity or verify()
     signature: str | None = None
     signing_key_ref: str | None = None       # which key signed; resolves the historical pubkey (rotation-safe)
     signature_scheme: str | None = None      # mechanics/profile (e.g. 'ed25519'); not a Core Domain enum
-    payload: Payload
+    payload: Payload | None
+
+    @property
+    def is_stub(self) -> bool:
+        return self.payload is None
 
     def verify(self) -> bool:
-        """Re-derive payload_digest and self_hash; a committed Event must be self-consistent."""
-        pd = digest(self.payload.model_dump(mode="json"))
+        """Re-derive payload_digest and self_hash under the envelope's OWN version; a committed
+        Event must be self-consistent. For a stub the committed `payload_digest` is taken as-is
+        (the honest limit — bytes are verified at upgrade, not here)."""
+        if self.envelope_version not in (1, 2):
+            return False                     # unknown version: refuse, never guess
+        if self.envelope_version == 1 and (self.scope_ref is not None or self.scope_digest is not None):
+            return False                     # structural: a v1 envelope never carries a scope
+        if self.scope_ref is not None:
+            from kawa.domain.ids import scope_digest_of
+            if self.scope_digest != scope_digest_of(self.scope_ref):
+                return False                 # cleartext must match the hashed commitment
+        pd = digest(self.payload.model_dump(mode="json")) if self.payload is not None else self.payload_digest
         sh = event_hash(
             origin_node=self.origin_node,
             origin_seq=self.origin_seq,
@@ -232,5 +257,7 @@ class Event(BaseModel):
             policy_digest=self.policy_digest,
             payload_digest=pd,
             prev_hash=self.prev_hash,
+            envelope_version=self.envelope_version,
+            scope_digest=self.scope_digest,
         )
         return pd == self.payload_digest and sh == self.self_hash == self.event_id

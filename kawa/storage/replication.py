@@ -41,7 +41,8 @@ class Rejection:
     reason: str  # 'collision' | 'chain_gap' | 'chain_break' | 'envelope_invalid' | 'unsigned' |
     #              'provenance_invalid' | 'trust_rotated' | 'trust_revoked' | 'trust_unknown' |
     #              'forged_origin' | 'predecessor_rejected' | 'origin_frozen' |
-    #              'equivocation' | 'restore_fork' | 'wire_invalid' (transport, replication_http)
+    #              'equivocation' | 'restore_fork' | 'wire_invalid' (transport, replication_http) |
+    #              'upgrade_digest_mismatch' (stub upgrade bytes != committed digest, 9a)
 
 
 @dataclass(frozen=True)
@@ -75,22 +76,40 @@ def read_stream(conn: psycopg.Connection, after: dict[str, int]) -> list[Event]:
             cur.execute(
                 "SELECT event_id, origin_node, origin_seq, hlc, kind, subject_ref, actor_ref, "
                 "policy_digest, payload_digest, prev_hash, self_hash, "
+                "envelope_version, scope_ref, scope_digest, materialized, "
                 "signature, signing_key_ref, signature_scheme "
                 "FROM events WHERE origin_node = %s AND origin_seq > %s ORDER BY origin_seq",
                 (onode, lo),
             )
             rows = cur.fetchall()
-            for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh, sig, kref, scheme) in rows:
-                payload = _load_payload(cur, eid, kind)
+            for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh,
+                 ever, sref, sdig, mat, sig, kref, scheme) in rows:
+                payload = _load_payload(cur, eid, kind) if mat else None   # a held stub serves as a stub
                 out.append(Event(
                     event_id=eid, origin_node=onode, origin_seq=oseq, hlc=hlc,
                     kind=EventKind(kind), subject_ref=str(subj) if subj else None,
                     actor_ref=actor, policy_digest=pol, payload_digest=pd,
                     prev_hash=prev, self_hash=sh,
+                    envelope_version=ever, scope_ref=sref, scope_digest=sdig,
                     signature=sig, signing_key_ref=kref, signature_scheme=scheme,
                     payload=payload,
                 ))
     return out
+
+
+def withhold(e: Event) -> Event:
+    """The serving-side redaction (#113 9a): the envelope without the payload bytes and
+    without the cleartext scope — what a peer gets for an event it may not see. Step-9a
+    rule: EVERY v2 event is withheld cross-node (least-visible default; there are no scope
+    grants until 9b, which replaces this predicate with the offer/retain algebra)."""
+    if e.is_stub:
+        return e
+    return e.model_copy(update={"payload": None, "scope_ref": None})
+
+
+def serve_batch(events: list[Event]) -> list[Event]:
+    """Apply the withholding rule to a stream about to cross the node boundary."""
+    return [withhold(e) if e.envelope_version >= 2 else e for e in events]
 
 
 def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKeyRegistry,
@@ -129,12 +148,31 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
                 continue
             head_seq, head_hash = heads.get(e.origin_node, (0, None))
             if e.origin_seq <= head_seq:
-                cur.execute("SELECT event_id, self_hash, signing_key_ref FROM events "
+                cur.execute("SELECT event_id, self_hash, signing_key_ref, materialized FROM events "
                             "WHERE origin_node=%s AND origin_seq=%s",
                             (e.origin_node, e.origin_seq))
                 row = cur.fetchone()
                 if row is not None and row[0] == e.event_id:
-                    continue                   # already held — idempotent re-delivery is a no-op
+                    # Re-delivery of a held event. BC-ii (#113 r2): if we hold only the STUB and
+                    # the re-delivery carries the payload, this is the upgrade path — byte-verify
+                    # against the held envelope's commitment, then materialize atomically. A
+                    # silent `continue` here would drop the payload forever (the frontier already
+                    # counts the stub, so anti-entropy would never re-request it).
+                    held_materialized = row[3]
+                    if not held_materialized and e.payload is not None:
+                        if e.verify():         # re-derives payload_digest over the delivered bytes
+                            cur.execute("UPDATE events SET materialized=true, scope_ref=%s "
+                                        "WHERE event_id=%s", (e.scope_ref, e.event_id))
+                            _insert_payload(cur, e)
+                            reduce(cur, e)
+                            report_admitted.append(e.event_id)
+                        else:
+                            # Same identity claim, bytes that do not hash to the commitment.
+                            # Reported, never applied — and deliberately NOT origin-poisoning:
+                            # the chain at the head is intact; only this upgrade claim is bad.
+                            report_rejected.append(Rejection(
+                                e.event_id, e.origin_node, e.origin_seq, "upgrade_digest_mismatch"))
+                    continue                   # otherwise: idempotent re-delivery is a no-op
                 # A different event at a held position. Only a rival that would pass the FULL
                 # trust gate at its CURRENT standing — provenance valid AND active AND correctly
                 # attributed — is §13 fork evidence. Unauthenticated junk must stay a plain
@@ -148,7 +186,7 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
                         and admit(evaluate(e.self_hash, e.signature, e.signing_key_ref,
                                            e.signature_scheme, keys, trust))
                         and trust.node_ref(e.signing_key_ref) == e.origin_node):
-                    held_id, held_hash_at, held_key = row
+                    held_id, held_hash_at, held_key, _held_mat = row
                     held_inc = trust.incarnation_ref(held_key) if held_key else None
                     rival_inc = trust.incarnation_ref(e.signing_key_ref)
                     # same known incarnation speaking with two voices = equivocation; distinct
@@ -198,14 +236,17 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
             cur.execute(
                 "INSERT INTO events (event_id, origin_node, origin_seq, hlc, kind, subject_ref, "
                 "actor_ref, policy_digest, payload_digest, prev_hash, self_hash, "
+                "envelope_version, scope_ref, scope_digest, materialized, "
                 "signature, signing_key_ref, signature_scheme) "
-                "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (e.event_id, e.origin_node, e.origin_seq, e.hlc, e.kind.value, e.subject_ref,
                  e.actor_ref, e.policy_digest, e.payload_digest, e.prev_hash, e.self_hash,
+                 e.envelope_version, e.scope_ref, e.scope_digest, not e.is_stub,
                  e.signature, e.signing_key_ref, e.signature_scheme),
             )
-            _insert_payload(cur, e)
-            reduce(cur, e)
+            if not e.is_stub:                  # the ONE materialization predicate: a stub admits
+                _insert_payload(cur, e)        # envelope-only, advances the head, and is
+                reduce(cur, e)                 # reducer-inert until upgraded (#113 9a)
             heads[e.origin_node] = (e.origin_seq, e.self_hash)
             if clock is not None:
                 clock.update(e.hlc)            # happens-before: our next emit orders after what we saw
@@ -218,8 +259,10 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
 def pull(dest: psycopg.Connection, source: psycopg.Connection, *, keys: PublicKeyRegistry,
          trust: TrustRegistry, clock: HLC | None = None) -> PullReport:
     """One anti-entropy pull (event-log-and-replication §4.1): frontier → missing events → gated admit.
-    `keys`/`trust` are the RECEIVER's registries — trust is a local judgement, never taken from the peer."""
-    return admit_batch(dest, read_stream(source, frontier(dest)), keys=keys, trust=trust, clock=clock)
+    `keys`/`trust` are the RECEIVER's registries — trust is a local judgement, never taken from the peer.
+    The stream crosses a node boundary, so the serving side withholds per `serve_batch` (9a: all v2)."""
+    return admit_batch(dest, serve_batch(read_stream(source, frontier(dest))),
+                       keys=keys, trust=trust, clock=clock)
 
 
 def incarnation_intervals(conn: psycopg.Connection, trust: TrustRegistry,
