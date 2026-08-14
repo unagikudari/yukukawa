@@ -106,7 +106,9 @@ def test_single_hash_derivation_structure() -> None:
     builders = []
     for py in root.rglob("*.py"):
         text = py.read_text(encoding="utf-8")
-        if '"origin_node": origin_node' in text or "'origin_node': origin_node" in text:
+        # the ENVELOPE preimage is uniquely identified by its prev_hash binding — other
+        # canonical digests (operation digests etc.) may share field names like origin_node
+        if '"prev_hash": prev_hash' in text or "'prev_hash': prev_hash" in text:
             builders.append(py.name)
     assert builders == ["ids.py"]
 
