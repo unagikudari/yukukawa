@@ -1320,6 +1320,7 @@ scoped-replication-and-archive-v0.1.md
 postgresql-physical-schema-v0.3.md
 prototype-vertical-slice-v0.1.md
 reducer-projection-contract-v0.2.md
+retrieval-recall-gate-v0.1.md
 scope-resolution-v0.1.md
 security-model-v0.1.md
 stale-write-guard-v0.1.md

@@ -8,6 +8,7 @@
     "C4-docset|wake-pull-coordination-v0.1.md|current doc listed in matrix+spec-26 but missing from readme",
     "C4-docset|node-identity-and-incarnation-v0.1.md|current doc listed in matrix+spec-26 but missing from readme",
     "C4-docset|scoped-replication-and-archive-v0.1.md|current doc listed in matrix+spec-26 but missing from readme",
-    "C4-docset|authority-cells-v0.1.md|current doc listed in matrix+spec-26 but missing from readme"
+    "C4-docset|authority-cells-v0.1.md|current doc listed in matrix+spec-26 but missing from readme",
+    "C4-docset|retrieval-recall-gate-v0.1.md|current doc listed in matrix+spec-26 but missing from readme"
   ]
 }
