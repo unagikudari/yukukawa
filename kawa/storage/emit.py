@@ -45,11 +45,13 @@ class Emitter:
         subject_ref: str | None = None,
         policy_digest: str | None = None,
         scope_ref: str | None = None,
+        envelope_version: int | None = None,
     ) -> Event:
-        """`scope_ref` (#113 9a): opt-in — passing it stamps an envelope-v2 event whose hash
-        commits to `scope_digest_of(scope_ref)`. Omitted → v1, byte-identical to pre-step-9
-        behavior (the BC-iii transition: the least-visible v2 default flips in 9b, atomically
-        with the fleet-scope grants — never here)."""
+        """`scope_ref` (#113 9a/9b): passing it stamps an envelope-v2 event whose hash commits
+        to `scope_digest_of(scope_ref)`. `envelope_version=2` with `scope_ref=None` mints an
+        UNSCOPED v2 event — node-local materialization, envelope-only replication (r2 BC-v:
+        no grant can ever apply; the payload is reachable only at its origin). Both omitted →
+        v1, the legacy fleet-visible carve-out (byte-identical to pre-step-9)."""
         with self.conn.cursor() as cur:
             # SERIALIZE: one appender per origin at a time (txn-scoped lock).
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (self.origin_node,))
@@ -64,7 +66,10 @@ class Emitter:
 
             hlc = self.hlc.tick()
             payload_digest = digest(payload.model_dump(mode="json"))
-            envelope_version = 2 if scope_ref is not None else 1
+            if envelope_version is None:
+                envelope_version = 2 if scope_ref is not None else 1
+            if envelope_version == 1 and scope_ref is not None:
+                raise ValueError("a v1 envelope never carries a scope")
             scope_digest = scope_digest_of(scope_ref) if scope_ref is not None else None
             self_hash = event_hash(
                 origin_node=self.origin_node,

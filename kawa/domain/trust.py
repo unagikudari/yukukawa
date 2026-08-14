@@ -52,11 +52,13 @@ class TrustRegistry:
         self.path = path
         self._m: dict[str, dict] = {}
         self._inc: dict[str, dict] = {}
+        self._grants: dict[str, list[str]] = {}   # node_ref -> granted scope_refs (9b)
         if os.path.exists(path):
             data = json.loads(open(path, encoding="utf-8").read())
             if "keys" in data or "incarnations" in data:
                 self._m = data.get("keys", {})
                 self._inc = data.get("incarnations", {})
+                self._grants = data.get("grants", {})
             else:  # legacy flat format
                 self._m = data
         for entry in self._m.values():  # legacy entries: synthesize genesis attribution
@@ -67,9 +69,13 @@ class TrustRegistry:
 
     def _save(self) -> None:
         with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"keys": self._m, "incarnations": self._inc}, f)
+            json.dump({"keys": self._m, "incarnations": self._inc, "grants": self._grants}, f)
 
-    def enroll(self, node_ref: str, key_ref: str, incarnation_ref: str | None = None) -> None:
+    def enroll(self, node_ref: str, key_ref: str, incarnation_ref: str | None = None,
+               scopes: tuple[str, ...] = ("fleet",)) -> None:
+        """`scopes` (#113 9b, BC-iii): enrollment grants land atomically with membership —
+        the default is the explicit `fleet` scope (fleet-wide visibility is a GRANT now,
+        never an implicit default; pass `scopes=()` to enroll with no payload visibility)."""
         if self.standing(key_ref) == "revoked":
             raise ValueError("cannot enroll a revoked key — revocation is forward-only and terminal")
         self._require_unbound_or_same(node_ref, key_ref)
@@ -80,7 +86,31 @@ class TrustRegistry:
                              "an incarnation binds to exactly one node")
         self._inc.setdefault(inc, {"node_ref": node_ref, "parent": None})
         self._m[key_ref] = {"node_ref": node_ref, "standing": "active", "incarnation_ref": inc}
+        for scope in scopes:
+            self._grants.setdefault(node_ref, [])
+            if scope not in self._grants[node_ref]:
+                self._grants[node_ref].append(scope)
         self._save()
+
+    # ---- scope grants (#113 9b) — receiver-local, forward-only, the offer/retain algebra's
+    # trust-plane half: a grant permits OFFERING payloads to that node (server side) or
+    # RETAINING them (receiver side). Never consulted for envelope admission — only payloads.
+
+    def grant_scope(self, node_ref: str, scope_ref: str) -> None:
+        self._grants.setdefault(node_ref, [])
+        if scope_ref not in self._grants[node_ref]:
+            self._grants[node_ref].append(scope_ref)
+        self._save()
+
+    def revoke_scope(self, node_ref: str, scope_ref: str) -> None:
+        """Forward-only: stops FUTURE payload flow. Payloads the node already materialized
+        are knowledge, not state to claw back (the key-distrust posture, applied to scopes)."""
+        if scope_ref in self._grants.get(node_ref, []):
+            self._grants[node_ref].remove(scope_ref)
+            self._save()
+
+    def scope_grants(self, node_ref: str) -> frozenset[str]:
+        return frozenset(self._grants.get(node_ref, []))
 
     def succeed_incarnation(self, node_ref: str, parent_incarnation: str,
                             new_incarnation: str, new_key_ref: str) -> None:

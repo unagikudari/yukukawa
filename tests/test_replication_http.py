@@ -53,7 +53,7 @@ def mesh(tmp_path):  # type: ignore[no-untyped-def]
     conn_b, _ = _fresh("KAWA_TEST_DSN_B", "dbname=kawa_test_b")
     cred_a = load_or_create_local_node(str(tmp_path / "a.json"), node_ref="node-a")
     cred_b = load_or_create_local_node(str(tmp_path / "b.json"), node_ref="node-b")
-    kawa_a = Kawa(conn_a, identity=IdentityContext.from_local_node(cred_a, actor_ref="agent-a"))
+    kawa_a = Kawa(conn_a, identity=IdentityContext.from_local_node(cred_a, actor_ref="agent-a"), default_scope=None)
     # A's server-side registries judge PULL CLIENTS; B's registries judge admitted EVENTS.
     keys_a = PublicKeyRegistry(str(tmp_path / "a-keys.json"))
     trust_a = TrustRegistry(str(tmp_path / "a-trust.json"))
@@ -122,10 +122,10 @@ def test_unauthorized_pull_refused_with_no_data(mesh, tmp_path) -> None:  # type
         nonce = a.challenge() if nonce is None else nonce
         sent_at = time.time() if sent_at is None else sent_at
         frontier_map = frontier_map or {}
-        dg = _request_digest(nonce, frontier_map, sent_at)
+        dg = _request_digest(nonce, frontier_map, sent_at, ["fleet"], {})
         return {"node": node or cred.node_ref, "key_ref": cred.signing_key_ref,
                 "scheme": cred.signature_scheme, "nonce": nonce, "sent_at": sent_at,
-                "frontier": frontier_map, "signature": cred.sign(dg)}
+                "frontier": frontier_map, "scopes": ["fleet"], "signature": cred.sign(dg)}
 
     # (1) unsigned / malformed
     assert a.authorize({"node": "node-b"}) == "malformed"
@@ -171,7 +171,7 @@ def test_nonce_cache_is_bounded_and_expiring(tmp_path) -> None:  # type: ignore[
     assert len(a._nonces) <= a.MAX_PENDING_NONCES
     # the expired nonce is gone; a request presenting it is refused
     assert a.authorize({"node": "x", "key_ref": "k", "scheme": "ed25519", "nonce": expired,
-                        "sent_at": 61.0, "frontier": {}, "signature": "s"},
+                        "sent_at": 61.0, "frontier": {}, "scopes": [], "signature": "s"},
                        now=61.0) == "nonce_unknown_or_replayed"
 
 

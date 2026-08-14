@@ -47,7 +47,7 @@ def conn_b():  # type: ignore[no-untyped-def]
 
 def _kawa(conn, tmp_path, name: str):  # type: ignore[no-untyped-def]
     cred = load_or_create_local_node(str(tmp_path / f"{name}.json"), node_ref=name)
-    return Kawa(conn, identity=IdentityContext.from_local_node(cred, actor_ref=f"agent-{name}")), cred
+    return Kawa(conn, identity=IdentityContext.from_local_node(cred, actor_ref=f"agent-{name}"), default_scope=None), cred
 
 
 def _exec_state(conn, work_ref):  # type: ignore[no-untyped-def]

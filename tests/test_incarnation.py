@@ -55,7 +55,7 @@ def conn_b():  # type: ignore[no-untyped-def]
 @pytest.fixture()
 def node_a(conn_a, tmp_path):  # type: ignore[no-untyped-def]
     cred = load_or_create_local_node(str(tmp_path / "node-a.json"), node_ref="node-a")
-    kawa = Kawa(conn_a, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"))
+    kawa = Kawa(conn_a, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"), default_scope=None)
     keys = PublicKeyRegistry(str(tmp_path / "b-keys.json"))
     trust = TrustRegistry(str(tmp_path / "b-trust.json"))
     keys.register(cred.signing_key_ref, cred.public_pem())
@@ -186,7 +186,7 @@ def test_per_incarnation_intervals_contiguous_and_lineage_ordered(conn_a, conn_b
     keys.register(cred2.signing_key_ref, cred2.public_pem())
     trust.succeed_incarnation("node-a", genesis_incarnation("node-a"),
                               "inc:node-a:2", cred2.signing_key_ref)
-    kawa2 = Kawa(conn_a, identity=IdentityContext.from_local_node(cred2, actor_ref="agent-a"))
+    kawa2 = Kawa(conn_a, identity=IdentityContext.from_local_node(cred2, actor_ref="agent-a"), default_scope=None)
     kawa2.create_plan("p3", "kawa", "after restore")
     conn_a.commit()
 

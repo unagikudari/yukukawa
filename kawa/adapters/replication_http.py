@@ -39,6 +39,8 @@ from kawa.storage.replication import (
     Rejection,
     admit_batch,
     frontier,
+    held_stub_positions,
+    read_positions,
     read_stream,
     serve_batch,
 )
@@ -60,10 +62,14 @@ class PullRefused(RuntimeError):
         self.reason = reason
 
 
-def _request_digest(nonce: str, frontier_map: dict[str, int], sent_at: float) -> str:
+def _request_digest(nonce: str, frontier_map: dict[str, int], sent_at: float,
+                    scopes: list[str], backfill: dict[str, list[int]]) -> str:
     """The signed coordinate of one pull request: nonce (single-use), the requester's frontier
-    (so a capture cannot be re-targeted), and the send time (freshness bound)."""
-    return digest({"nonce": nonce, "frontier": frontier_map, "sent_at": sent_at})
+    (so a capture cannot be re-targeted), the send time (freshness bound), the requested
+    scopes, and the stub-backfill positions (#113 9b — the whole ask is signed; a middlebox
+    can neither widen nor narrow it)."""
+    return digest({"nonce": nonce, "frontier": frontier_map, "sent_at": sent_at,
+                   "scopes": sorted(scopes), "backfill": backfill})
 
 
 class PullAuthorizer:
@@ -102,7 +108,8 @@ class PullAuthorizer:
 
     def authorize(self, body: dict, *, now: float | None = None) -> str | None:
         """None when authorized; otherwise the typed refusal reason. Every axis fails closed."""
-        for field in ("node", "key_ref", "scheme", "nonce", "sent_at", "frontier", "signature"):
+        for field in ("node", "key_ref", "scheme", "nonce", "sent_at", "frontier", "scopes",
+                      "signature"):
             if field not in body:
                 return "malformed"
         t0 = time.time() if now is None else now
@@ -113,7 +120,8 @@ class PullAuthorizer:
             del self._nonces[body["nonce"]]
         if abs(t0 - float(body["sent_at"])) > self.window:
             return "stale"
-        dg = _request_digest(body["nonce"], body["frontier"], body["sent_at"])
+        dg = _request_digest(body["nonce"], body["frontier"], body["sent_at"], body["scopes"],
+                             body.get("backfill", {}))
         if not resolve_and_verify_provenance(dg, body["signature"], body["key_ref"],
                                              body["scheme"], self.keys):
             return "provenance_invalid"
@@ -158,8 +166,14 @@ def serve(dsn: str, authorizer: PullAuthorizer, host: str = "127.0.0.1",
                 return
             with psycopg.connect(dsn) as conn:
                 events = read_stream(conn, {k: int(v) for k, v in body["frontier"].items()})
-            # node boundary: withhold per the step-9a rule (all v2 — grants arrive in 9b)
-            self._json(200, {"events": [to_wire(e) for e in serve_batch(events)]})
+                backfill = {o: [int(s) for s in seqs]
+                            for o, seqs in body.get("backfill", {}).items()}
+                if backfill:   # payload backfill for the client's held stubs (BC-ii)
+                    events = events + read_positions(conn, backfill)
+            # the OFFER half (#113 9b): full payloads only for granted ∩ requested; every
+            # other v2 event crosses as a digest-only stub
+            offer = authorizer.trust.scope_grants(body["node"]) & frozenset(body["scopes"])
+            self._json(200, {"events": [to_wire(e) for e in serve_batch(events, offer)]})
 
         def log_message(self, *a: object) -> None:  # quiet
             pass
@@ -170,7 +184,7 @@ def serve(dsn: str, authorizer: PullAuthorizer, host: str = "127.0.0.1",
 
 def pull_http(dest: psycopg.Connection, base_url: str, *, credential: NodeCredential,
               keys: PublicKeyRegistry, trust: TrustRegistry,
-              clock: HLC | None = None) -> PullReport:
+              clock: HLC | None = None, scopes: tuple[str, ...] = ("fleet",)) -> PullReport:
     """One anti-entropy pull over the wire: challenge → signed frontier request → verify each
     event over its received bytes (`from_wire`) → the SAME trust-gated `admit_batch` as
     in-process replication. Transport adds reachability, never leniency: a wire-verification
@@ -180,11 +194,14 @@ def pull_http(dest: psycopg.Connection, base_url: str, *, credential: NodeCreden
             nonce = json.loads(resp.read())["nonce"]
         frontier_map = frontier(dest)
         sent_at = time.time()
-        dg = _request_digest(nonce, frontier_map, sent_at)
+        requested = sorted(scopes)
+        backfill = held_stub_positions(dest, tuple(scopes))
+        dg = _request_digest(nonce, frontier_map, sent_at, requested, backfill)
         body = json.dumps({
             "node": credential.node_ref, "key_ref": credential.signing_key_ref,
             "scheme": credential.signature_scheme, "nonce": nonce, "sent_at": sent_at,
-            "frontier": frontier_map, "signature": credential.sign(dg),
+            "frontier": frontier_map, "scopes": requested, "backfill": backfill,
+            "signature": credential.sign(dg),
         }).encode("utf-8")
         req = urllib.request.Request(base_url + "/replication/pull", data=body,
                                      headers={"Content-Type": "application/json"})
@@ -208,5 +225,6 @@ def pull_http(dest: psycopg.Connection, base_url: str, *, credential: NodeCreden
             wire_rejected.append(Rejection(
                 str(env.get("event_id", "?")), str(env.get("origin_node", "?")),
                 int(env.get("origin_seq", 0) or 0), "wire_invalid"))
-    report = admit_batch(dest, batch, keys=keys, trust=trust, clock=clock)
+    report = admit_batch(dest, batch, keys=keys, trust=trust, clock=clock,
+                         requested_scopes=frozenset(requested))   # RETAIN: defense in depth
     return PullReport(admitted=report.admitted, rejected=wire_rejected + report.rejected)

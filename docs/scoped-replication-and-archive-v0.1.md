@@ -1,6 +1,6 @@
 # Kawa Scoped Replication and Archive v0.1 — step-9 Phase-0 addendum
 
-Status: Draft, current normative addendum — realized incrementally (9a REALIZED; 9b, 9c PLANNED per §25)
+Status: Draft, current normative addendum — realized incrementally (9a, 9b REALIZED; 9c PLANNED per §25)
 Realizes: `specification-v0.5.md` §11/§12 per roadmap step 9 (issue #113, two-round plan gate + r2 binding constraints), three PRs: 9a → 9b → 9c
 Companions: `event-log-and-replication-v0.1.md` (§1 envelope, §5 scoped replication), `node-identity-and-incarnation-v0.1.md` (step-8 wire/admission/trust plane this builds on)
 
@@ -20,7 +20,7 @@ v2  H(v1 fields + {envelope_version: 2, scope_digest})
 - The version lives in `events.envelope_version` (DEFAULT 1), the wire envelope, and the model — explicit, never inferred from absence.
 - **Downgrade/upgrade forgery is a hash mismatch, not a policy check** (the version is inside the v2 preimage). A v1 envelope carrying any scope is structurally invalid. Unknown versions are refused, never guessed.
 - The v2 hash commits to the **digest**, not the raw `scope_ref`: full events carry the cleartext (integrity-checked against the digest); withheld events reveal only the pseudonymous digest. Dictionary attacks on guessable scope names are possible and accepted for Phase-0 (peers are enrolled, credentialed basin nodes); salting is envelope-v3 territory.
-- Emit is **opt-in v2** (`scope_ref=` parameter); the default stays v1 — the least-visible default flips in 9b, atomically with the `fleet`-scope grants (r2 BC-iii transition rule).
+- Emit stamps v2 whenever a scope is given (`scope_ref=`) or v2 is forced (`envelope_version=2`, the unscoped-v2 form); with neither it emits v1, the legacy carve-out. The service-layer default is `fleet` since 9b (§3, BC-iii).
 
 ## 2. Stubs — verifiable holes (9a, REALIZED)
 
@@ -30,11 +30,17 @@ A **stub** is an origin-signed envelope held without its payload bytes (`events.
 - **One materialization predicate** gates reduction in admission AND rebuild (`materialized`): stubs are reducer-inert everywhere; a mixed full/stub log rebuilds to exactly the projections of the full events alone.
 - **Upgrade (r2 BC-ii):** re-delivery of a held stub WITH payload routes to the upgrade path, never the idempotent no-op (which would drop the bytes forever — the frontier already counts the stub, so anti-entropy would never re-request it; the frontier is an **envelope-level cursor** by definition). Upgrade byte-verifies against the held commitment, then materializes atomically (payload row + `materialized=true` + reduce, one transaction). Mismatched bytes → `upgrade_digest_mismatch`, reported, non-poisoning (the chain at the head is intact). Upgrade changes materialization eligibility only — identity is fixed.
 - The append-only guard on `events` narrows for exactly this one transition: `materialized false→true` + `scope_ref NULL→value` with every hash-relevant column bit-identical (enforced in the trigger). Everything else, and every DELETE, stays forbidden — a node only ever learns bytes it had already committed to by hash.
-- Step-9a boundary rule (`serve_batch`): **every v2 event is withheld cross-node** — there are no scope grants until 9b, and least-visible is the fail-direction. v1 events ship full to enrolled-active peers, the legacy carve-out.
+- Boundary rule (`serve_batch`): a v2 event ships full ONLY to a viewer whose grants include its scope (§3); with no serving context, every v2 event is withheld — least-visible is the fail-direction. v1 events ship full to enrolled-active peers, the legacy carve-out.
 
-## 3. Scope grants and the offer/retain algebra (9b, PLANNED)
+## 3. Scope grants and the offer/retain algebra (9b, REALIZED)
 
-Per #113 rev 2 (c): trust-plane `grant_scope`/`revoke_scope`; sender grant permits OFFERING, receiver request+grant permits RETAINING/MATERIALIZING; every disagreement degrades to a stub, never a gap, never a chain break. New reasons `scope_unrequested` (payload dropped, envelope admitted as stub) and `scope_digest_mismatch` (full reject). v2 default becomes least-visible; `fleet` becomes an explicit scope granted at enrollment; the dogfood emitters flip atomically with those grants. Frontier/pull responses name no scope identifiers beyond shared ones.
+Per #113 rev 2 (c), all normative and tested:
+
+- **Grants live in the trust plane** (`grant_scope` / `revoke_scope` / `scope_grants`), receiver-local and forward-only: revoking a scope stops FUTURE payload flow; already-materialized payloads are knowledge, not state to claw back (the key-distrust posture, applied to scopes).
+- **The algebra:** sender grant permits **offering** (`serve_batch(events, granted ∩ requested)`); receiver request permits **retaining/materializing** (`admit_batch(requested_scopes=...)`). Every disagreement — either direction — degrades the event to a stub: never a gap, never a chain break, always upgradeable later. Typed reasons: `scope_unrequested` (payload dropped, envelope admitted as stub, non-poisoning — a malicious server cannot push unauthorized content) and `scope_digest_mismatch` (cleartext lies about the hashed commitment — full reject).
+- **The least-visible flip (BC-iii), atomic:** `Kawa(default_scope="fleet")` makes every dogfood emit v2-`fleet`; `TrustRegistry.enroll` grants `fleet` by default in the same PR. Fleet-wide visibility is now an explicit grant, never an implicit default. Unscoped v2 (`emit(envelope_version=2)`, no scope) is **node-local materialization** (r2 BC-v): envelope-only replication, no grant can name it, the payload is reachable only at its origin. v1 stays the legacy fleet-visible carve-out (`default_scope=None` emitters).
+- **Payload backfill (BC-ii closed end-to-end):** the frontier is an envelope-level cursor — held stubs are counted, so a plain cursor pull would never re-request their bytes. The pull protocol therefore carries a **signed backfill request**: the client names its held-stub positions whose `scope_digest` matches a scope it now requests (`held_stub_positions` — it knows only digests for withheld events, but it knows what it wants and digests it); the server serves those positions through the same offer filter, and admission routes them to the atomic upgrade. Grant-later-upgrade-later works over a plain pull, in-process and over HTTP.
+- **Metadata boundary (§12.4):** the request names only the scopes the client asks for; withheld events cross as digest-only stubs; no other scope identifier appears on the wire.
 
 ## 4. Segment commitments and archive (9c, PLANNED)
 
@@ -44,7 +50,18 @@ Per #113 rev 2 (d): a segment commitment is a **verification-and-custody attesta
 
 Apply `sql/0010_envelope_v2.sql` BEFORE running the 9a code (emit writes the new columns unconditionally; admission reads `materialized`). Migration-before-code is safe: columns are additive with defaults that describe every pre-step-9 row exactly (`envelope_version=1`, `materialized=true`).
 
-## 6. Realized mapping (§25: implemented, tested — 9a)
+## 6. Realized mapping (§25: implemented, tested — 9a + 9b)
+
+```text
+kawa/domain/trust.py           scope grants (grant_scope/revoke_scope/scope_grants),
+                               enroll(..., scopes=("fleet",)) default grant (9b)
+kawa/application/services.py   Kawa(default_scope="fleet") — the BC-iii emitter flip (9b)
+kawa/storage/replication.py    serve_batch(grants) offer filter, admit_batch(requested_scopes)
+                               retain filter, held_stub_positions/read_positions backfill (9b)
+kawa/adapters/replication_http scopes+backfill in the signed request; offer at the server (9b)
+tests/test_scope_grants.py     offer/retain matrix, defense-in-depth, digest mismatch, BC-v,
+                               forward-only revocation, fleet default e2e, HTTP backfill (9b)
+```
 
 ```text
 kawa/domain/ids.py            versioned event_hash (single derivation) + scope_digest_of

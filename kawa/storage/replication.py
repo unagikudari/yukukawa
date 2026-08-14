@@ -25,7 +25,7 @@ import psycopg
 
 from kawa.domain.events import Event, EventKind
 from kawa.domain.credential import PublicKeyRegistry
-from kawa.domain.ids import HLC
+from kawa.domain.ids import HLC, scope_digest_of
 from kawa.domain.trust import TrustRegistry, admit, evaluate
 from kawa.projections.reducers import _load_payload, reduce
 from kawa.storage.emit import _insert_payload
@@ -42,7 +42,9 @@ class Rejection:
     #              'provenance_invalid' | 'trust_rotated' | 'trust_revoked' | 'trust_unknown' |
     #              'forged_origin' | 'predecessor_rejected' | 'origin_frozen' |
     #              'equivocation' | 'restore_fork' | 'wire_invalid' (transport, replication_http) |
-    #              'upgrade_digest_mismatch' (stub upgrade bytes != committed digest, 9a)
+    #              'upgrade_digest_mismatch' (stub upgrade bytes != committed digest, 9a) |
+    #              'scope_unrequested' (payload dropped, envelope admitted as stub, 9b) |
+    #              'scope_digest_mismatch' (cleartext scope lies about the commitment, 9b)
 
 
 @dataclass(frozen=True)
@@ -97,27 +99,87 @@ def read_stream(conn: psycopg.Connection, after: dict[str, int]) -> list[Event]:
     return out
 
 
+def held_stub_positions(conn: psycopg.Connection, scopes: tuple[str, ...]) -> dict[str, list[int]]:
+    """The payload-backfill half of anti-entropy (#113 r2 BC-ii): the frontier is an
+    ENVELOPE-level cursor — held stubs are counted, so a plain cursor pull never re-requests
+    their bytes. This names the positions to backfill: held stubs whose `scope_digest`
+    matches a scope this node is requesting (the receiver knows only digests for withheld
+    events — but it knows which scopes it wants, and digests them)."""
+    digests = {scope_digest_of(s) for s in scopes}
+    out: dict[str, list[int]] = {}
+    with conn.cursor() as cur:
+        cur.execute("SELECT origin_node, origin_seq FROM events "
+                    "WHERE NOT materialized AND scope_digest = ANY(%s) "
+                    "ORDER BY origin_node, origin_seq", (list(digests),))
+        for onode, oseq in cur.fetchall():
+            out.setdefault(onode, []).append(oseq)
+    return out
+
+
+def read_positions(conn: psycopg.Connection, positions: dict[str, list[int]]) -> list[Event]:
+    """Serve specific held positions (the backfill request) — same shape as read_stream."""
+    out: list[Event] = []
+    with conn.cursor() as cur:
+        for onode, seqs in sorted(positions.items()):
+            for oseq in sorted(seqs):
+                cur.execute(
+                    "SELECT event_id, origin_node, origin_seq, hlc, kind, subject_ref, actor_ref, "
+                    "policy_digest, payload_digest, prev_hash, self_hash, "
+                    "envelope_version, scope_ref, scope_digest, materialized, "
+                    "signature, signing_key_ref, signature_scheme "
+                    "FROM events WHERE origin_node = %s AND origin_seq = %s", (onode, oseq),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    continue
+                (eid, onode2, oseq2, hlc, kind, subj, actor, pol, pd, prev, sh,
+                 ever, sref, sdig, mat, sig, kref, scheme) = row
+                payload = _load_payload(cur, eid, kind) if mat else None
+                out.append(Event(
+                    event_id=eid, origin_node=onode2, origin_seq=oseq2, hlc=hlc,
+                    kind=EventKind(kind), subject_ref=str(subj) if subj else None,
+                    actor_ref=actor, policy_digest=pol, payload_digest=pd,
+                    prev_hash=prev, self_hash=sh,
+                    envelope_version=ever, scope_ref=sref, scope_digest=sdig,
+                    signature=sig, signing_key_ref=kref, signature_scheme=scheme,
+                    payload=payload,
+                ))
+    return out
+
+
 def withhold(e: Event) -> Event:
-    """The serving-side redaction (#113 9a): the envelope without the payload bytes and
-    without the cleartext scope — what a peer gets for an event it may not see. Step-9a
-    rule: EVERY v2 event is withheld cross-node (least-visible default; there are no scope
-    grants until 9b, which replaces this predicate with the offer/retain algebra)."""
+    """The serving-side redaction: the envelope without the payload bytes and without the
+    cleartext scope — what a peer gets for an event it may not see."""
     if e.is_stub:
         return e
     return e.model_copy(update={"payload": None, "scope_ref": None})
 
 
-def serve_batch(events: list[Event]) -> list[Event]:
-    """Apply the withholding rule to a stream about to cross the node boundary."""
-    return [withhold(e) if e.envelope_version >= 2 else e for e in events]
+def serve_batch(events: list[Event], grants: frozenset[str] | None = None) -> list[Event]:
+    """The OFFER half of the grant algebra (#113 9b), applied to a stream about to cross the
+    node boundary. v1 ships full (the legacy fleet-visible carve-out). A v2 event ships full
+    ONLY when its scope is in the viewer's grants; unscoped v2 (no scope at all) is
+    envelope-only to everyone, always (r2 BC-v: node-local materialization — no grant can
+    name it). `grants=None` means an unknown viewer — withhold every v2 (fail closed)."""
+    viewer = grants if grants is not None else frozenset()
+    return [e if e.envelope_version < 2 or (e.scope_ref is not None and e.scope_ref in viewer)
+            else withhold(e) for e in events]
 
 
 def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKeyRegistry,
-                trust: TrustRegistry, clock: HLC | None = None) -> PullReport:
+                trust: TrustRegistry, clock: HLC | None = None,
+                requested_scopes: frozenset[str] | None = None) -> PullReport:
     """Trust-gated append of a received batch. Admitted Events are inserted (envelope + typed payload
     row, exactly as the origin emitted them) and reduced into the projections; every refusal is a
     typed Rejection. Once one Event of an origin stream is refused, the rest of that stream cannot
-    chain and is rejected as 'predecessor_rejected' — contiguity is the completeness guarantee."""
+    chain and is rejected as 'predecessor_rejected' — contiguity is the completeness guarantee.
+
+    `requested_scopes` (#113 9b) is the RETAIN half of the grant algebra — receiver defense in
+    depth: a v2 payload for a scope this pull did not request is dropped and its envelope admits
+    as a stub (`scope_unrequested`, non-poisoning — a malicious or misconfigured server cannot
+    push unauthorized content into this node's working set; the chain is never invalidated).
+    None = no receiver scope policy (a local, trusted import — the transport callers always pass
+    their requested set)."""
     report_admitted: list[str] = []
     report_rejected: list[Rejection] = []
     heads: dict[str, tuple[int, str]] = {}   # origin -> (held seq, held self_hash)
@@ -160,7 +222,13 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
                     # counts the stub, so anti-entropy would never re-request it).
                     held_materialized = row[3]
                     if not held_materialized and e.payload is not None:
-                        if e.verify():         # re-derives payload_digest over the delivered bytes
+                        if (requested_scopes is not None and e.envelope_version >= 2
+                                and (e.scope_ref is None or e.scope_ref not in requested_scopes)):
+                            # RETAIN check applies to upgrades too: an unrequested payload
+                            # cannot materialize a held stub (non-poisoning; stub stays)
+                            report_rejected.append(Rejection(
+                                e.event_id, e.origin_node, e.origin_seq, "scope_unrequested"))
+                        elif e.verify():       # re-derives payload_digest over the delivered bytes
                             cur.execute("UPDATE events SET materialized=true, scope_ref=%s "
                                         "WHERE event_id=%s", (e.scope_ref, e.event_id))
                             _insert_payload(cur, e)
@@ -215,6 +283,9 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
             if e.prev_hash != head_hash:
                 reject("chain_break")          # does not chain onto what we hold
                 continue
+            if e.scope_ref is not None and e.scope_digest != scope_digest_of(e.scope_ref):
+                reject("scope_digest_mismatch")   # cleartext lies about the hashed commitment (9b)
+                continue
             if not e.verify():
                 reject("envelope_invalid")     # content_hash / payload_digest mismatch
                 continue
@@ -232,6 +303,14 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
             if trust.node_ref(e.signing_key_ref) != e.origin_node:
                 reject("forged_origin")        # a trusted key may not speak as another node
                 continue
+            if (requested_scopes is not None and e.envelope_version >= 2 and not e.is_stub
+                    and (e.scope_ref is None or e.scope_ref not in requested_scopes)):
+                # RETAIN check (#113 9b): the payload was not asked for — drop it, admit the
+                # envelope as a stub, report. Non-poisoning: the chain is intact, and the
+                # position stays upgradeable if a grant+request later arrives.
+                report_rejected.append(Rejection(
+                    e.event_id, e.origin_node, e.origin_seq, "scope_unrequested"))
+                e = withhold(e)
 
             cur.execute(
                 "INSERT INTO events (event_id, origin_node, origin_seq, hlc, kind, subject_ref, "
@@ -257,12 +336,26 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
 
 
 def pull(dest: psycopg.Connection, source: psycopg.Connection, *, keys: PublicKeyRegistry,
-         trust: TrustRegistry, clock: HLC | None = None) -> PullReport:
+         trust: TrustRegistry, clock: HLC | None = None,
+         source_trust: TrustRegistry | None = None, puller_node: str | None = None,
+         scopes: tuple[str, ...] | None = None) -> PullReport:
     """One anti-entropy pull (event-log-and-replication §4.1): frontier → missing events → gated admit.
     `keys`/`trust` are the RECEIVER's registries — trust is a local judgement, never taken from the peer.
-    The stream crosses a node boundary, so the serving side withholds per `serve_batch` (9a: all v2)."""
-    return admit_batch(dest, serve_batch(read_stream(source, frontier(dest))),
-                       keys=keys, trust=trust, clock=clock)
+
+    The grant algebra (#113 9b) composes here: the server OFFERS `granted ∩ requested`
+    (`source_trust.scope_grants(puller_node)` ∩ `scopes`) — everything else crosses as a stub —
+    and the receiver RETAINS only what it requested (`requested_scopes` in admission). Without a
+    serving context (`source_trust`/`puller_node` None) every v2 event is withheld: least-visible
+    is the fail-direction, never a default grant."""
+    granted = (source_trust.scope_grants(puller_node)
+               if source_trust is not None and puller_node is not None else frozenset())
+    requested = frozenset(scopes) if scopes is not None else None
+    offer = granted if requested is None else granted & requested
+    stream = read_stream(source, frontier(dest))
+    if scopes:   # payload backfill for held stubs in now-requested scopes (BC-ii)
+        stream = stream + read_positions(source, held_stub_positions(dest, scopes))
+    return admit_batch(dest, serve_batch(stream, offer),
+                       keys=keys, trust=trust, clock=clock, requested_scopes=requested)
 
 
 def incarnation_intervals(conn: psycopg.Connection, trust: TrustRegistry,

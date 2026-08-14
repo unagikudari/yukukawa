@@ -69,10 +69,10 @@ def test_dangling_link_unresolved_then_backfilled_and_rebuild_equal(conn, tmp_pa
     try:
         linker = load_or_create_local_node(str(tmp_path / "linker.json"), node_ref="node-a")
         author = load_or_create_local_node(str(tmp_path / "author.json"), node_ref="node-b")
-        k_author = Kawa(conn, identity=IdentityContext.from_local_node(author, actor_ref="w"))
+        k_author = Kawa(conn, identity=IdentityContext.from_local_node(author, actor_ref="w"), default_scope=None)
         claim = k_author.record_claim("cross-origin claim")
         obs = k_author.record_observation("probe", value_number=1.0, method="http_probe")
-        k_linker = Kawa(conn, identity=IdentityContext.from_local_node(linker, actor_ref="l"))
+        k_linker = Kawa(conn, identity=IdentityContext.from_local_node(linker, actor_ref="l"), default_scope=None)
         k_linker.assert_link(obs.event_id, "supports", claim.event_id)
 
         keys = PublicKeyRegistry(str(tmp_path / "keys.json"))
@@ -277,7 +277,7 @@ def test_links_replicate_through_trust_gate(conn, tmp_path) -> None:  # type: ig
     conn_b = _fresh("KAWA_TEST_DSN_B", "dbname=kawa_test_b")
     try:
         cred = load_or_create_local_node(str(tmp_path / "node-a.json"), node_ref="node-a")
-        ka = Kawa(conn, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"))
+        ka = Kawa(conn, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"), default_scope=None)
         keys = PublicKeyRegistry(str(tmp_path / "keys.json"))
         trust = TrustRegistry(str(tmp_path / "trust.json"))
         keys.register(cred.signing_key_ref, cred.public_pem())

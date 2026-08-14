@@ -59,7 +59,7 @@ def conn_b():  # type: ignore[no-untyped-def]
 def node_a(conn_a, tmp_path):  # type: ignore[no-untyped-def]
     """An attested Kawa runtime on store A (origin 'node-a'), plus B's registries with A enrolled."""
     cred = load_or_create_local_node(str(tmp_path / "node-a.json"), node_ref="node-a")
-    kawa = Kawa(conn_a, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"))
+    kawa = Kawa(conn_a, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"), default_scope=None)
     keys = PublicKeyRegistry(str(tmp_path / "b-keys.json"))
     trust = TrustRegistry(str(tmp_path / "b-trust.json"))
     keys.register(cred.signing_key_ref, cred.public_pem())
@@ -205,7 +205,7 @@ def test_rekeying_after_revocation_does_not_resurrect_the_stream(conn_a, conn_b,
     cred2 = load_or_create_local_node(str(tmp_path / "node-a-rekey.json"), node_ref="node-a")
     keys.register(cred2.signing_key_ref, cred2.public_pem())
     trust.enroll("node-a", cred2.signing_key_ref)                   # fresh enroll, same node: allowed
-    k2 = Kawa(conn_a, identity=IdentityContext.from_local_node(cred2, actor_ref="agent-a"))
+    k2 = Kawa(conn_a, identity=IdentityContext.from_local_node(cred2, actor_ref="agent-a"), default_scope=None)
     k2.record_result("w-mid", "success", "r-mid")                   # post-re-key event, signed K2
 
     report = pull(conn_b, conn_a, keys=keys, trust=trust)
@@ -218,7 +218,7 @@ def test_unsigned_events_do_not_cross_nodes(conn_a, conn_b, node_a) -> None:  # 
     """An unattested runtime's events (honest NULL signature, valid locally) stop at the node
     boundary: cross-node admission requires attestation."""
     _, _, keys, trust = node_a
-    u = Kawa(conn_a, identity=IdentityContext.from_local_runtime(node_ref="node-u", actor_ref="a"))
+    u = Kawa(conn_a, identity=IdentityContext.from_local_runtime(node_ref="node-u", actor_ref="a"), default_scope=None)
     u.create_plan("pu", "kawa", "unattested local work")
     report = pull(conn_b, conn_a, keys=keys, trust=trust)
     assert report.admitted == []

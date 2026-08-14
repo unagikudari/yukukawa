@@ -53,7 +53,7 @@ def conn_b():  # type: ignore[no-untyped-def]
 @pytest.fixture()
 def node_a(conn_a, tmp_path):  # type: ignore[no-untyped-def]
     cred = load_or_create_local_node(str(tmp_path / "node-a.json"), node_ref="node-a")
-    kawa = Kawa(conn_a, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"))
+    kawa = Kawa(conn_a, identity=IdentityContext.from_local_node(cred, actor_ref="agent-a"), default_scope=None)
     keys = PublicKeyRegistry(str(tmp_path / "b-keys.json"))
     trust = TrustRegistry(str(tmp_path / "b-trust.json"))
     keys.register(cred.signing_key_ref, cred.public_pem())

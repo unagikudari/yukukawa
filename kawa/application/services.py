@@ -27,11 +27,18 @@ from kawa.domain.identity import IdentityContext
 
 
 class Kawa:
-    def __init__(self, conn: psycopg.Connection, *, identity: IdentityContext) -> None:
+    def __init__(self, conn: psycopg.Connection, *, identity: IdentityContext,
+                 default_scope: str | None = "fleet") -> None:
+        """`default_scope` (#113 9b, BC-iii): the emitter-configuration half of the atomic
+        least-visible flip — every emit through this service is envelope-v2 `fleet`-scoped by
+        default, matching the `fleet` grant `TrustRegistry.enroll` records by default. Pass
+        `default_scope=None` for a legacy v1 emitter (the stated rolling-transition carve-out)."""
         self.conn = conn
         self.emitter = Emitter(conn, identity=identity)
+        self.default_scope = default_scope
 
     def _emit_reduce(self, payload: Payload, **kw: str | None) -> Event:
+        kw.setdefault("scope_ref", self.default_scope)   # type: ignore[arg-type]
         event = self.emitter.emit(payload, **kw)  # type: ignore[arg-type]
         with self.conn.cursor() as cur:
             reduce(cur, event)
