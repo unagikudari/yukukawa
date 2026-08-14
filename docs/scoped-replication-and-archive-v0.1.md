@@ -1,6 +1,6 @@
 # Kawa Scoped Replication and Archive v0.1 — step-9 Phase-0 addendum
 
-Status: Draft, current normative addendum — realized incrementally (9a, 9b REALIZED; 9c PLANNED per §25)
+Status: Draft, current normative addendum — 9a, 9b, 9c REALIZED (§25)
 Realizes: `specification-v0.5.md` §11/§12 per roadmap step 9 (issue #113, two-round plan gate + r2 binding constraints), three PRs: 9a → 9b → 9c
 Companions: `event-log-and-replication-v0.1.md` (§1 envelope, §5 scoped replication), `node-identity-and-incarnation-v0.1.md` (step-8 wire/admission/trust plane this builds on)
 
@@ -42,15 +42,29 @@ Per #113 rev 2 (c), all normative and tested:
 - **Payload backfill (BC-ii closed end-to-end):** the frontier is an envelope-level cursor — held stubs are counted, so a plain cursor pull would never re-request their bytes. The pull protocol therefore carries a **signed backfill request**: the client names its held-stub positions whose `scope_digest` matches a scope it now requests (`held_stub_positions` — it knows only digests for withheld events, but it knows what it wants and digests it); the server serves those positions through the same offer filter, and admission routes them to the atomic upgrade. Grant-later-upgrade-later works over a plain pull, in-process and over HTTP.
 - **Metadata boundary (§12.4):** the request names only the scopes the client asks for; withheld events cross as digest-only stubs; no other scope identifier appears on the wire.
 
-## 4. Segment commitments and archive (9c, PLANNED)
+## 4. Segment commitments and archive (9c, REALIZED)
 
-Per #113 rev 2 (d): a segment commitment is a **verification-and-custody attestation** — archiver A, at time T, under policy P, held and verified contiguous `(origin, from_seq..to_seq)` with boundary hashes and the event-set digest. Not a re-proof of authorship. Detached segments live OUTSIDE the live frontier (archive evidence; they enter the store only as chained gap-fill through normal admission). `scripts/archive_verify.py` re-verifies and records `archive_restore_ok/failed` Observations (source-binding tuple); staleness surfaces in the console, gates nothing (no GC exists; retention policy is a future step). No pruning path exists in step 9.
+Per #113 rev 2 (d), all normative and tested (`kawa/storage/archive.py`):
+
+- **The attestation claim:** a segment commitment `{origin, from_seq, from_hash, to_seq, to_hash, event_set_digest, policy, attested_at}`, signed by the archiver's node key, attests **verification and custody of a contiguous range** — never authorship (each event already carries the origin's signature). Verification is **four separable layers** (archiver signature → event-set digest → boundary/contiguity → per-event byte verification), so tampering localizes.
+- **Detached segments live OUTSIDE the live frontier:** `archive_import` records custody evidence in the security plane (`security_archive_segment`, never counted by anti-entropy) and offers the events to NORMAL admission — they enter the live store only when they chain onto held history (ordinary gap-fill; a tail segment on an empty node stays `detached=true`, verified evidence about unmaterialized history, and chains later when the head arrives).
+- **Restore proofs are recorded, never assumed** (§12.3): `scripts/archive_verify.py` re-verifies a file and records an `archive_restore_ok` Observation (value_bool + the #98 source-binding tuple over the file bytes); a corrupted archive records a FAILURE Observation, not silence. The operator/policy loop owns the cadence; the Console `/archive` screen surfaces segments and proof ages. Staleness gates nothing — no GC exists; coupling proof freshness to retention is the future retention-policy step.
+- **No pruning path exists** (§11, structure-tested): export reads only; import adds only; the append-only triggers stand untouched.
 
 ## 5. Deploy order (operational)
 
 Apply `sql/0010_envelope_v2.sql` BEFORE running the 9a code (emit writes the new columns unconditionally; admission reads `materialized`). Migration-before-code is safe: columns are additive with defaults that describe every pre-step-9 row exactly (`envelope_version=1`, `materialized=true`).
 
-## 6. Realized mapping (§25: implemented, tested — 9a + 9b)
+## 6. Realized mapping (§25: implemented, tested — 9a + 9b + 9c)
+
+```text
+kawa/storage/archive.py        commitment make/verify (4 layers), archive_export/import (9c)
+sql/0011_archive.sql           security_archive_segment custody evidence (frontier-invisible)
+scripts/archive_verify.py      restore-proof Observations (ok AND failure recorded)
+kawa/console/render.py         /archive screen: segments + proof ages
+tests/test_archive.py          catchup, per-layer tamper, detached->gap-fill, failure proof,
+                               console smoke, no-pruning structure test (9c)
+```
 
 ```text
 kawa/domain/trust.py           scope grants (grant_scope/revoke_scope/scope_grants),

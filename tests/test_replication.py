@@ -25,8 +25,9 @@ _ALL = (
     "events, event_links, event_link, event_observation, event_claim, event_plan, "
     "event_work, event_work_dependency, event_work_retired, event_result, current_claim_standing, "
     "current_plans, current_work, current_work_dependency, runtime_work_occupancy, work_dispatch, "
-    # step 8: admission consults fork evidence (durable freeze), so isolation must clear it too
-    "security_fork_evidence, result_occurrence_quarantine"
+    # step 8/9: admission consults fork evidence (durable freeze), so isolation must clear it,
+    # and archive custody evidence likewise
+    "security_fork_evidence, result_occurrence_quarantine, security_archive_segment"
 )
 
 

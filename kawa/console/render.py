@@ -136,10 +136,49 @@ def _screen_search(conn: psycopg.Connection, query: dict | None = None) -> str:
 
 
 # path, sidebar label, screen fn, implemented? — the ONE place screens & sidebar are defined.
+def _screen_archive(conn: psycopg.Connection) -> str:
+    """#113 9c: custody evidence + the age of the latest restore proof — §12.3's "commitment
+    existence does not prove durability" made visible. Staleness gates nothing (no GC
+    exists); it is operator information."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT origin_node, from_seq, to_seq, detached, verified_at, "
+                    "archiver_key_ref FROM security_archive_segment "
+                    "ORDER BY origin_node, from_seq")
+        segments = cur.fetchall()
+        cur.execute(
+            "SELECT eo.value_bool, eo.source_ref, eo.fetched_at, "
+            "clock_timestamp() - eo.fetched_at::timestamptz AS age "
+            "FROM event_observation eo JOIN events e ON e.event_id = eo.event_id "
+            "WHERE eo.predicate = 'archive_restore_ok' AND e.materialized "
+            "ORDER BY eo.fetched_at DESC LIMIT 10")
+        proofs = cur.fetchall()
+    out = ['<section class="card"><h2>Segment commitments</h2><div class="work">']
+    for onode, lo, hi, detached, vat, kref in segments:
+        state = ('<span class="st mut">detached</span>' if detached
+                 else '<span class="st ok">chained</span>')
+        out.append(f'<div class="wi"><span class="wr">{html.escape(onode)} [{lo}..{hi}]</span>'
+                   f'<span class="meta">verified {html.escape(str(vat)[:19])} · '
+                   f'{html.escape(kref or "")}</span>{state}</div>')
+    if not segments:
+        out.append('<p class="mut">No archived segments.</p>')
+    out.append('</div></section><section class="card"><h2>Restore proofs</h2><div class="work">')
+    for ok, src, fat, age in proofs:
+        cls = "ok" if ok else "crit"
+        out.append(f'<div class="wi"><span class="wr">{html.escape(src or "")}</span>'
+                   f'<span class="meta">proof age {html.escape(str(age).split(".")[0])}</span>'
+                   f'<span class="st {cls}">{"ok" if ok else "FAILED"}</span></div>')
+    if not proofs:
+        out.append('<p class="mut">No restore proofs recorded — durability is an assumption '
+                   'until scripts/archive_verify.py records one.</p>')
+    out.append("</div></section>")
+    return "\n".join(out)
+
+
 SCREENS = [
     ("/", "Route", _screen_route, True),
     ("/dispatch", "Dispatch", _screen_dispatch, True),
     ("/search", "Search", _screen_search, True),
+    ("/archive", "Archive", _screen_archive, True),
     ("/fleet", "Fleet", _screen_planned, False),
     ("/graph", "Graph", _screen_planned, False),
     ("/authority", "Authority", _screen_planned, False),
