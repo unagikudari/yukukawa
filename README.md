@@ -221,6 +221,53 @@ The DB-backed tests **skip** without a database; a genuine boot check requires t
 > read only `KAWA_TEST_DSN_A` (default `dbname=kawa_test_a`) and ignore `KAWA_DSN` — the runtime
 > DSN cannot select the fixture target even by accident.
 
+### Joining an existing deployment (replica / participant node)
+
+The Quickstart above stands up a **fresh, standalone** Kawa. Adding a machine to an
+**already-running** Kawa deployment — a replica that pulls the canonical event log and
+whose sessions open with the current-position brief — is a different, **host-bound,
+per-node** procedure. There is no remote "make node X a participant" switch: a node
+becomes a participant only by being provisioned on that node.
+
+A participant node needs **all** of:
+
+1. **repo + venv** — this checkout with `.venv` and `pip install -e '.[dev]'` (Quickstart steps).
+2. **local `kawa` database** — `createdb kawa` + `apply_migrations.py`.
+3. **node identity** — an ed25519 node credential (auto-created on first run by
+   `kawa.domain.credential.load_or_create_local_node`; the real key is git-ignored operator
+   data, see [`.kawa-node-identity.example.json`](.kawa-node-identity.example.json)).
+4. **replication from the canonical node** — `scripts/replica_pull.py` (timer
+   `ops/systemd/kawa-replica-pull.timer`) or the resident loop `scripts/supervisor.py`
+   (`ops/systemd/kawa-supervisor.service`), with **both DSNs NAMED, fail-closed**:
+   `KAWA_DSN` (local) + `KAWA_SOURCE_DSN` (canonical's read-only `kawa_replica` role) + `KAWA_NODE`.
+   **Trust enrollment is an operator act, never automatic** (`--keys`/`--trust`/`--credential`
+   registries): the canonical must trust this node's key and this node must trust the source —
+   this is where a new node meets the node-trust plane, not a copy step.
+5. **fleet brief opt-in** *(this fleet's broker integration, optional)* — the host-scoped
+   broker `node_fact kawa_participant=true` (set it **on that node's own broker**, `source=manual`;
+   the ownership trigger rejects a cross-host write). The `session_kawa_brief` SessionStart hook
+   then injects the brief. Without repo+venv the hook **silently no-ops**, so the flag alone does
+   nothing.
+
+**Readiness check — the one command that proves a node is a participant** (repo + venv + DB all
+present). Run it *before* setting the flag; a node that fails this is not provisioned:
+
+```bash
+KAWA_DSN=dbname=kawa .venv/bin/python scripts/brief.py   # prints the brief ⟺ node is ready
+```
+
+`scripts/provision_node.sh` codifies steps 1–3 and the readiness gate, then prints the operator
+steps (4–5) it will not perform unattended (trust enrollment and replication wiring cross the
+security plane).
+
+> **Trap (observed 2026-08-15).** Do **not** infer kawa-node status from PostgreSQL
+> subscriptions. Native `pg_subscription` rows named `sub_<node>_from_<peer>` in the same cluster
+> are the **broker mesh** (a separate `membroker` deployment), **not** Kawa — `pg_subscription` is a
+> cluster-global catalog, so they show up even when queried from the `kawa` database. **Kawa
+> replication is application-level pull** (`replica_pull.py`), not native logical replication. A
+> node can carry broker-mesh subscriptions and have **no** Kawa repo/venv/DB at all. Trust only the
+> readiness check run **on the node itself**.
+
 ### Operator Console
 
 The repository-native Console renders from the **live** `current_*` projections on every request
