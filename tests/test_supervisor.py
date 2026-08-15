@@ -139,3 +139,13 @@ def test_lost_state_duplicates_but_never_silences(conn, k, tmp_path):  # type: i
     # at-least-once: the duplicate is the accepted cost; silence is the failure mode
     assert [s["work_ref"] for s in status2["surfaced_this_tick"]] == ["w-a"]
     assert len(_observations(conn)) == 2
+
+
+def test_iso_renders_utc_regardless_of_session_timezone():  # type: ignore[no-untyped-def]
+    """The first production tick stamped a JST wall time with a Z (t_eligible
+    apparently 9h in the future). _iso must convert aware datetimes to UTC."""
+    import datetime as dt
+    from scripts.supervisor import _iso
+    jst = dt.timezone(dt.timedelta(hours=9))
+    aware = dt.datetime(2026, 8, 15, 10, 34, 24, tzinfo=jst)   # = 01:34:24Z
+    assert _iso(aware) == "2026-08-15T01:34:24Z"

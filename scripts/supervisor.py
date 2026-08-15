@@ -66,6 +66,12 @@ def _now() -> datetime.datetime:
 
 
 def _iso(dt: datetime.datetime) -> str:
+    """Render as UTC with the Z it claims — a timestamptz arrives from psycopg in
+    the SESSION timezone; formatting it unconverted would stamp local wall time
+    with a false Z (found on the first production tick: t_eligible rendered 9h
+    ahead of t_surfaced while the subtraction was correct)."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(datetime.timezone.utc)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
