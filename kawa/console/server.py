@@ -19,7 +19,8 @@ class _Handler(BaseHTTPRequestHandler):
             path = "/"
         try:
             with connect() as conn:            # a fresh read per request; projections are live
-                page = render(conn, path, parse_qs(qs) if qs else None)
+                page = render(conn, path, parse_qs(qs) if qs else None,
+                              host=self.headers.get("Host"))
         except Exception as exc:  # pragma: no cover - surfaced to the operator, never a blank page
             # ASCII reason phrase (HTTP status line is latin-1); detail goes in the utf-8 body.
             self.send_error(500, "projection read failed", str(exc))
@@ -39,6 +40,14 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve(host: str = "127.0.0.1", port: int = 8099) -> None:
-    httpd = ThreadingHTTPServer((host, port), _Handler)
+    server_cls = ThreadingHTTPServer
+    if ":" in host:  # IPv6 literal — "::" binds dual-stack, per fleet IPv6-native rule
+        import socket
+
+        class _V6Server(ThreadingHTTPServer):
+            address_family = socket.AF_INET6
+
+        server_cls = _V6Server
+    httpd = server_cls((host, port), _Handler)
     print(f"Kawa Console on http://{host}:{port}  (reads live projections; Ctrl-C to stop)")
     httpd.serve_forever()

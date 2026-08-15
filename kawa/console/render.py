@@ -199,16 +199,34 @@ def _header_stats(conn: psycopg.Connection):
     return events, nplans, nwork, (html.escape(str(fresh)[:19]) if fresh else "—")
 
 
-def _sidebar(active_path: str) -> str:
+# Sibling operator surfaces on the same node, keyed by port — the console is one
+# pane of the operator picture; the broker UI (plans / wiki / fleet) is the other.
+# The hostname comes from the request Host header at render time, so the links
+# resolve to whichever node is serving this console (nothing node-specific here).
+SURFACES = [
+    ("Broker", 8000, "/dashboards"),
+    ("Plans", 8000, "/w/plans"),
+    ("Wiki", 8000, "/w"),
+]
+
+
+def _sidebar(active_path: str, host: str | None = None) -> str:
     items = []
     for p, label, _fn, impl in SCREENS:
         cls = "nav-item" + (" active" if p == active_path else "") + ("" if impl else " planned")
         tag = "" if impl else '<span class="soon">planned</span>'
         items.append(f'<a class="{cls}" href="{p}">{html.escape(label)}{tag}</a>')
+    hostname = (host or "").split(":")[0] or "127.0.0.1"
+    items.append('<div class="side-sec">surfaces</div>')
+    for label, port, p in SURFACES:
+        href = f"http://{html.escape(hostname)}:{port}{p}"
+        items.append(f'<a class="nav-item" href="{href}">{html.escape(label)}'
+                     '<span class="soon">↗</span></a>')
     return '<nav class="side"><div class="brand">Kawa</div>' + "".join(items) + "</nav>"
 
 
-def render(conn: psycopg.Connection, path: str = "/", query: dict | None = None) -> str | None:
+def render(conn: psycopg.Connection, path: str = "/", query: dict | None = None,
+           host: str | None = None) -> str | None:
     """Render the page for `path`, or None if the path is not a known screen (404)."""
     entry = _BY_PATH.get(path)
     if entry is None:
@@ -216,7 +234,7 @@ def render(conn: psycopg.Connection, path: str = "/", query: dict | None = None)
     label, fn, _impl = entry
     events, nplans, nwork, fresh = _header_stats(conn)
     content = fn(conn, query) if fn is _screen_search else fn(conn)
-    return _TEMPLATE.format(active=html.escape(label), sidebar=_sidebar(path), content=content,
+    return _TEMPLATE.format(active=html.escape(label), sidebar=_sidebar(path, host), content=content,
                             nplans=nplans, nwork=nwork, events=events, fresh=fresh)
 
 
@@ -240,6 +258,8 @@ text-decoration:none;padding:6px 10px;border-radius:6px;font-size:13px}}
 .nav-item:hover{{background:var(--panel);color:var(--tx)}}
 .nav-item.active{{background:var(--panel);color:var(--tx);box-shadow:inset 2px 0 0 var(--accent)}}
 .nav-item.planned{{opacity:.5}}
+.side-sec{{margin-top:auto;padding:12px 10px 4px;font-size:10px;text-transform:uppercase;
+letter-spacing:.08em;color:var(--mut);border-top:1px solid var(--bd)}}
 .soon{{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);
 border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .main{{flex:1;min-width:0;display:flex;flex-direction:column}}
