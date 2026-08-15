@@ -216,7 +216,7 @@ class ClassReport:
 
 
 def measure(conn: psycopg.Connection, corpus: dict, raw_bytes: bytes,
-            adjudication: dict | None = None) -> dict:
+            adjudication: dict | None = None, embedder=None) -> dict:
     """Run the corpus through the REAL retrieve() and compute the verdict. Deterministic
     given (log state, corpus bytes, adjudication). `adjudication` is the BC-2 merge:
     {miss_key: reviewer_cause}; absent => the verdict is PENDING_ADJUDICATION whenever
@@ -241,7 +241,7 @@ def measure(conn: psycopg.Connection, corpus: dict, raw_bytes: bytes,
                         relation_depth=spec.get("relation_depth", 2),
                         limit=spec.get("limit", 50),
                         fallback_policy=spec.get("fallback_policy"))
-        bundle = retrieve(conn, intent)
+        bundle = retrieve(conn, intent, embedder)     # 11B: None => textual vector stated as skipped
         retrieved = {r.ref for recs in bundle.sections.values() for r in recs}
         anchor = bundle.plan.bound.anchor_ref
         rep = per_class[q["expected_class"]]

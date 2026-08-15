@@ -16,7 +16,7 @@ from kawa.projections.reducers import rebuild
 psycopg = pytest.importorskip("psycopg")
 
 _ALL = (
-    "events, event_links, event_link, event_observation, event_claim, event_plan, "
+    "content_embedding, event_content, events, event_links, event_link, event_observation, event_claim, event_plan, "
     "event_work, event_work_dependency, event_work_retired, event_result, current_claim_standing, "
     "current_plans, current_work, current_work_dependency, runtime_work_occupancy, work_dispatch"
 )

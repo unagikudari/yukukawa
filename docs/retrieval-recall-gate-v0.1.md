@@ -1,6 +1,6 @@
 # Kawa Retrieval Recall Gate v0.1 — step-11 Phase addendum
 
-Status: Draft, current normative addendum — 11A-1 (instrument) REALIZED; 11A-2 (measurement) and 11B (conditional backend) PLANNED per §25
+Status: current normative addendum — 11A-1 (instrument) REALIZED; 11A-2 (measurement) REALIZED — machine verdict **GO** (evidence, neighborhood; corpus sha256:08aa4da1…, PR #125); 11B (backend) REALIZED on that GO — see `vector-retrieval-v0.1.md` for the measured delta
 Realizes: `specification-v0.5.md` §10.6's conditional per roadmap step 11 (issue #122, two-round gate + BC-1..BC-6)
 Companions: `kawa/retrieval.py` (§10 SQL-first, the thing measured), `scoped-replication-and-archive-v0.1.md` (the 9a predicates 11B's scope invariant reuses)
 

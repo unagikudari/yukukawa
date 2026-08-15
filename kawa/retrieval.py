@@ -31,6 +31,7 @@ later with no compatibility promise to them.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol, Sequence
 
 import psycopg
 
@@ -109,6 +110,7 @@ class Bundle:
     empty_classes: list[str] = field(default_factory=list)
     skipped_classes: list[str] = field(default_factory=list)            # deferred lexical, not fired
     fts_queries: list[str] = field(default_factory=list)                # generated tsquery strings
+    vector_frontier: list[str] = field(default_factory=list)            # index lag / model, stated (§10.3)
 
 
 # ---- phase 1: binding (state-dependent, honestly — bound refs become provenance) ----
@@ -147,7 +149,7 @@ _DISPATCH: dict[str, tuple[str, ...]] = {
     "work": ("anchor_lookup", "neighborhood"),
 }
 _BACKEND = {"anchor_lookup": "typed_sql", "standing": "typed_sql", "evidence": "typed_sql",
-            "neighborhood": "traversal", "lexical": "fts"}
+            "neighborhood": "traversal", "lexical": "fts", "vector": "vector"}
 
 
 def compile_plan(bound: BoundIntent) -> RetrievalPlan:
@@ -161,6 +163,14 @@ def compile_plan(bound: BoundIntent) -> RetrievalPlan:
         # records (fts_reason=structured_underflow); otherwise it is reported as skipped.
         reason = "textual" if bound.intent.fallback_policy is None else "structured_underflow"
         purposes.append(("lexical", reason))
+    if purposes:
+        # step 11B (#122, measured GO on evidence+neighborhood): every plannable
+        # intent also gets a vector class — LAST, so the structural and lexical
+        # classes keep their pre-11B budget precedence (Lock 3 remainder order):
+        # vector adds reach, it never outranks structure. Anchored intents need
+        # NO live model (the query vector is the anchor's STORED embedding);
+        # textual intents embed live and are stated as skipped without a model.
+        purposes.append(("vector", None))
     if not purposes:
         return RetrievalPlan(bound=bound, query_classes=())
 
@@ -178,7 +188,8 @@ def compile_plan(bound: BoundIntent) -> RetrievalPlan:
 
 # ---- phase 3: execute ----
 
-def retrieve(conn: psycopg.Connection, intent: Intent) -> Bundle:
+def retrieve(conn: psycopg.Connection, intent: Intent,
+             embedder: "VectorEmbedder | None" = None) -> Bundle:
     plan = compile_plan(resolve_bindings(conn, intent))
     bundle = Bundle(plan=plan)
     structural_total = 0
@@ -189,8 +200,11 @@ def retrieve(conn: psycopg.Connection, intent: Intent) -> Bundle:
                 bundle.skipped_classes.append(
                     f"{qc.class_id} (threshold met: {structural_total} structural records)")
                 continue
-        records = _EXECUTORS[qc.purpose](conn, plan, qc, bundle)
-        if qc.backend != "fts":
+        if qc.purpose == "vector":
+            records = _exec_vector(conn, plan, qc, bundle, embedder)
+        else:
+            records = _EXECUTORS[qc.purpose](conn, plan, qc, bundle)
+        if qc.backend not in ("fts", "vector"):
             structural_total += len(records)
         if records:
             bundle.sections[qc.class_id] = records
@@ -392,6 +406,163 @@ def _exec_lexical(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
             for pr, o in cur.fetchall():
                 out.append(Record(ref=pr, kind="plan", summary=o, backend=qc.backend,
                                   class_id=qc.class_id, path=f"fts:{terms!r}"))
+    return out
+
+
+class VectorEmbedder(Protocol):
+    """Structural twin of kawa.embeddings.Embedder — retrieval must not import
+    the embedding substrate (the anchored path is pure SQL; only textual
+    intents ever need a live model)."""
+
+    @property
+    def model_identity(self) -> str: ...
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+
+def _indexed_model(cur: psycopg.Cursor) -> tuple[str, int] | None:
+    """The model the index answers under: best-covered, deterministic tiebreak.
+    State-dependent like resolve_bindings — and reported in the frontier."""
+    cur.execute("SELECT model_identity, count(*) FROM content_embedding "
+                "GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 1")
+    row = cur.fetchone()
+    return (row[0], row[1]) if row else None
+
+
+def _anchor_content_event(cur: psycopg.Cursor, bound: BoundIntent) -> str | None:
+    """The event whose canonical text stands for the anchor (query-vector source).
+    claim/event anchors are themselves; a plan is its latest objective-bearing
+    event; a work is its work.derived event."""
+    if bound.anchor_kind in ("claim_event", "event"):
+        return bound.anchor_ref
+    if bound.anchor_kind == "plan":
+        cur.execute(
+            "SELECT p.event_id FROM event_plan p JOIN events e ON e.event_id = p.event_id "
+            "WHERE p.plan_ref = %s AND p.objective IS NOT NULL "
+            "ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1", (bound.anchor_ref,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    if bound.anchor_kind == "work":
+        cur.execute(
+            "SELECT w.event_id FROM event_work w JOIN events e ON e.event_id = w.event_id "
+            "WHERE w.work_ref = %s ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1",
+            (bound.anchor_ref,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    return None
+
+
+def _domain_ref(cur: psycopg.Cursor, event_id: str, kind: str) -> str:
+    """Map an event to the ref space retrieve() answers in (§10.3 / the recall
+    corpus label space): plan events -> plan_ref, work.derived -> work_ref,
+    everything else -> the event id. Matches the lexical class precedent."""
+    if kind in ("plan.created", "plan.lifecycle_changed"):
+        cur.execute("SELECT plan_ref FROM event_plan WHERE event_id=%s", (event_id,))
+        row = cur.fetchone()
+        return row[0] if row else event_id
+    if kind == "work.derived":
+        cur.execute("SELECT work_ref FROM event_work WHERE event_id=%s", (event_id,))
+        row = cur.fetchone()
+        return row[0] if row else event_id
+    return event_id
+
+
+def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
+                 bundle: Bundle, embedder: VectorEmbedder | None) -> list[Record]:
+    """Step 11B (#122): semantic nearest-neighbors over the §12.2 embedding
+    materialization. Anchored intents use the anchor's STORED embedding (pure
+    SQL — no live model); textual intents embed the unbound text live. Every
+    non-firing condition is STATED in skipped_classes; index lag and the
+    answering model are stated in vector_frontier. Similarity is presentation
+    order — non-epistemic (§10.4): this executor reads, never writes."""
+    b = plan.bound
+    with conn.cursor() as cur:
+        indexed = _indexed_model(cur)
+        if indexed is None:
+            bundle.skipped_classes.append(f"{qc.class_id} (vector index empty)")
+            return []
+        model, _n = indexed
+        cur.execute("SELECT count(*) FROM events WHERE materialized")
+        materialized = cur.fetchone()[0]
+        cur.execute(
+            "SELECT count(*) FROM event_content c WHERE EXISTS "
+            "  (SELECT 1 FROM content_embedding e WHERE e.content_digest = c.content_digest "
+            "   AND e.model_identity = %s)", (model,))
+        covered = cur.fetchone()[0]
+        bundle.vector_frontier.append(
+            f"model={model} coverage={covered}/{materialized} materialized events")
+
+        anchor_event: str | None = None
+        if b.anchor_ref is not None:
+            anchor_event = _anchor_content_event(cur, b)
+            qvec: str | None = None
+            if anchor_event is not None:
+                cur.execute(
+                    "SELECT e.embedding::text FROM event_content c "
+                    "JOIN content_embedding e ON e.content_digest = c.content_digest "
+                    "JOIN events ev ON ev.event_id = c.event_id AND ev.materialized "
+                    "WHERE c.event_id = %s AND e.model_identity = %s",
+                    (anchor_event, model))
+                row = cur.fetchone()
+                qvec = row[0] if row else None
+            if qvec is None:
+                bundle.skipped_classes.append(
+                    f"{qc.class_id} (anchor has no embedding under {model})")
+                return []
+        elif b.unbound_text:
+            if embedder is None:
+                bundle.skipped_classes.append(
+                    f"{qc.class_id} (textual vector needs a live embedder)")
+                return []
+            if embedder.model_identity != model:
+                bundle.skipped_classes.append(
+                    f"{qc.class_id} (live embedder {embedder.model_identity} "
+                    f"!= indexed model {model})")
+                return []
+            qvec = "[" + ",".join(f"{v:.8f}" for v in embedder.embed([b.unbound_text])[0]) + "]"
+        else:
+            return []
+
+        # walk nearest-first in deterministic chunks, dedup to domain refs:
+        # several events can share a plan_ref (objective revisions) — keep the
+        # nearest. Chunked keyset-free scan (PR #128 review): a ref with many
+        # revisions can never starve the budget the way a fixed over-fetch
+        # window could. ev.materialized is re-checked here as defence-in-depth
+        # for BC-4 — extraction already refuses stubs, the query refuses twice.
+        out: list[Record] = []
+        seen: set[str] = {b.anchor_ref} if b.anchor_ref else set()
+        offset = 0
+        chunk = max(qc.budget * 3, 16)
+        capped = False
+        while len(out) < qc.budget and not capped:
+            cur.execute(
+                "SELECT c.event_id, ev.kind, 1 - (e.embedding <=> %s::vector) AS sim "
+                "FROM event_content c "
+                "JOIN content_embedding e ON e.content_digest = c.content_digest "
+                "JOIN events ev ON ev.event_id = c.event_id "
+                "WHERE e.model_identity = %s AND c.event_id <> %s AND ev.materialized "
+                "ORDER BY e.embedding <=> %s::vector, c.event_id LIMIT %s OFFSET %s",
+                (qvec, model, anchor_event or "", qvec, chunk, offset))
+            rows = cur.fetchall()
+            if not rows:
+                break
+            offset += len(rows)
+            for event_id, kind, sim in rows:
+                ref = _domain_ref(cur, event_id, kind)
+                if ref in seen:
+                    continue
+                if len(out) >= qc.budget:
+                    bundle.traversal_frontier.append(
+                        FrontierEntry(source_node=anchor_event or "text", relation="similar",
+                                      next_ref=ref, reason="row_cap"))
+                    capped = True
+                    break
+                seen.add(ref)
+                rkind, summary = _summary_of(cur, event_id)
+                out.append(Record(
+                    ref=ref, kind=rkind, summary=summary, backend=qc.backend,
+                    class_id=qc.class_id, path=f"vec:{model} sim={sim:.3f}",
+                    standing=_standing_of(cur, event_id)))
     return out
 
 

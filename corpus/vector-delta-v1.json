@@ -1,0 +1,72 @@
+{
+  "corpus_digest": "sha256:08aa4da1dd5685f5be04195c8b4519a31b035b82fe9e3097a4a5d79c3a3798fa",
+  "verdict_after": "GO",
+  "model_identity": "fastembed/BAAI/bge-small-en-v1.5:384d:probe-sha256:3622250f33d457d4",
+  "embedding_frontier": {
+    "materialized_events": 222,
+    "with_content": 151,
+    "no_content": 71,
+    "embedded": 151,
+    "missing": 0
+  },
+  "per_class": {
+    "anchor_lookup": {
+      "before": 0.9,
+      "after": 0.9,
+      "delta": 0.0
+    },
+    "standing": {
+      "before": 0.5714285714285714,
+      "after": 0.5714285714285714,
+      "delta": 0.0
+    },
+    "evidence": {
+      "before": 0.0,
+      "after": 0.6153846153846154,
+      "delta": 0.6153846153846154
+    },
+    "neighborhood": {
+      "before": 0.3333333333333333,
+      "after": 0.7333333333333333,
+      "delta": 0.39999999999999997
+    },
+    "lexical": {
+      "before": 0.5833333333333334,
+      "after": 1.0,
+      "delta": 0.41666666666666663
+    }
+  },
+  "newly_hit": [
+    "ev-01::w-review-step02-impl",
+    "ev-01::w-step02-epistemic-nucleus",
+    "ev-02::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+    "ev-02::w-phase5-authority",
+    "ev-03::plan-roadmap-v05",
+    "ev-06::sha256:ecb956166a4536b9c6547e5b195dc744deb4a19c0181236617a955b2d519c24d",
+    "ev-07::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+    "ev-08::w-step01-replace-fact-semantics",
+    "lx-03::plan-roadmap",
+    "lx-03::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+    "lx-05::w-7c-ghost-invariant",
+    "lx-06::w-5b-credential-broker",
+    "lx-07::sha256:5ac34c59cf3ee71402e934052c08c218742daab8584b292fb0f9dbe93e6842aa",
+    "nb-04::w-step09-basin-archive",
+    "nb-05::plan-step10-authority-cells",
+    "nb-06::w-attest-origin",
+    "nb-06::w-phase4c-replication",
+    "nb-06::w-review-phase4c",
+    "nb-06::w-trust-lifecycle"
+  ],
+  "no_shadowing": {
+    "ok": true,
+    "regressions": []
+  },
+  "observation_ids": [
+    "sha256:da77d757f93b132e41fff56ae5f5d0578846c337fec680442bc89e4714bda829",
+    "sha256:ceb866415a2d932f019e6253a0f14baf9c4cb17832599012268c124b7669ebe5",
+    "sha256:7481b91b02e2be5fe2e65b6702ce5a2331f4db78f9c6fb8202e14e1082cf8d7c",
+    "sha256:9069680522c81fbd5d648b5352226fc7cc33cac7b696b0a8dfe15064bd32f9dd",
+    "sha256:b7d1f3efed0c6d3a57fe22fe4a6821fdbe3000925c0d929eb272f2c125a66a8c",
+    "sha256:de7e93f4292cf1cbb2e254f1f0294970b450b15433182d7bc2b1303bb65d8bbf"
+  ]
+}

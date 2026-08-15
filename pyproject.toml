@@ -11,6 +11,9 @@ dependencies = ["pydantic>=2", "psycopg[binary]>=3.1", "cryptography>=42"]
 
 [project.optional-dependencies]
 dev = ["pytest", "mypy"]
+# step 11B: only the indexer and textual live queries need the model runtime —
+# core retrieval (anchored vector = stored embeddings) stays dependency-free
+embed = ["fastembed>=0.8"]
 
 [tool.setuptools.packages.find]
 include = ["kawa*"]
