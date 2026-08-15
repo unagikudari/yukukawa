@@ -1,0 +1,20 @@
+# Step 12C (#129): the resident pull loop — timer-less, Type=notify, tick T=60s.
+# Supervision is EXTERNAL (R7): WatchdogSec catches a hung loop, Restart revives a
+# dead one, OnFailure surfaces the failure. The status file + journald are the
+# first-class surfaces; the broker message is a deprecated-at-birth bridge (F3).
+[Unit]
+Description=kawa supervisor — resident pull loop, surfaces newly-eligible Work (12C)
+OnFailure=kawa-supervisor-onfail.service
+
+[Service]
+Type=notify
+WorkingDirectory=%h/kawa
+Environment=KAWA_DSN=dbname=kawa
+Environment=KAWA_NODE=panoplia
+ExecStart=%h/kawa/.venv/bin/python scripts/supervisor.py
+WatchdogSec=180
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,12 @@
+# Step 12C (#129 R7): the OnFailure hook — records supervisor unit failure where
+# the operator looks (journald + a status marker), independent of the failed
+# process. Deliberately dependency-free: /bin/sh only.
+[Unit]
+Description=kawa supervisor failure marker (12C OnFailure hook)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'ts=$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ); \
+  echo "kawa-supervisor FAILED at $ts (see: systemctl --user status kawa-supervisor)"; \
+  mkdir -p %h/.kawa/status; \
+  printf "{\\"ts\\": \\"%%s\\", \\"unit_failure\\": true}\n" "$ts" > %h/.kawa/status/supervisor.onfail'

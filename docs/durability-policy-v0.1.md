@@ -56,6 +56,37 @@ Changing any value changes the digest; the measurement lineage visibly splits.
 - status file: `~/.kawa/status/replica.status` (written on EVERY run, success or
   failure; staleness bound `now − status.ts > 2 × cadence`, same as 12A)
 
+## Supervisor (12C)
+
+- tick: T = 60s (#129 rev 2 R2); resident `Type=notify` unit
+  (`kawa-supervisor.service`), NOT a timer — the loop holds one connection and
+  pings the systemd watchdog every tick
+- pull is authoritative (§7.1): each tick reads the ready Work set from
+  `current_work`; a wake hint that never arrives degrades to the next tick,
+  never to ignorance
+- surfacing: a Work FIRST seen ready emits ONE signed `work_surfaced`
+  Observation — `value_number` = propagation seconds, `T_surfaced − T_eligible`;
+  `T_eligible` = `events.recorded_at` of the eligibility-completing event
+  (`current_work.latest_event_id` at first-seen; `ready_at` fallback),
+  `T_surfaced` = the tick's status-file timestamp; both from the supervisor
+  node's clock, no cross-node math (#129 rev 3 F2)
+- propagation bound: `T_surfaced − T_eligible ≤ T + 5s`, measured end-to-end
+  once and recorded (R2)
+- at-least-once: the surfaced-state file (`~/.kawa/supervisor.state.json`)
+  commits AFTER the Observation and status write — kill anywhere and rerun; the
+  worst case is a duplicate surfacing, never a silent omission. A Work that
+  leaves `ready` is pruned; becoming eligible again surfaces again
+- supervision is EXTERNAL (R7): `WatchdogSec=180` (3 missed ticks), 
+  `Restart=on-failure`, `OnFailure=kawa-supervisor-onfail.service`; any tick
+  exception ⇒ status ok=false + exit 2 (the loud path, R2)
+- bridge (F3): the broker message to `<node>-cc-primary` is a SECONDARY surface,
+  deprecated at birth — every status write carries `"bridge":
+  "deprecated-active"` until a `bridge_exit_accepted` Observation records one
+  operator session served end-to-end by kawa's own presence surface with the
+  bridge stopped. Bridge failure lands in `bridge_error`, never fails a tick
+- status file: `~/.kawa/status/supervisor.status` (written on EVERY tick,
+  success or failure; staleness bound `now − status.ts > 2 × T`)
+
 ## Surfaces (12A slice of R5)
 
 - status file: `~/.kawa/status/archive.status` (machine-readable JSON, written
