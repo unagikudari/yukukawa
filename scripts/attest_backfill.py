@@ -113,7 +113,8 @@ def main() -> int:
     signer = (ephemeral_credential(args.origin) if args.ephemeral
               else load_or_create_local_node(args.credential))
     keys = PublicKeyRegistry(args.keys)
-    audit_identity = IdentityContext.from_credential_file()   # the custodian node signs the audit
+    # the custodian node signs the audit
+    audit_identity = IdentityContext.from_credential_file(actor_ref="attest-backfill")
 
     with connect() as conn:
         summary = backfill(conn, origin=args.origin, signer=signer, keys=keys,
