@@ -1,0 +1,10 @@
+[Unit]
+Description=daily kawa archive cycle (durability policy v0.1)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

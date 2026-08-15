@@ -1,7 +1,12 @@
 """PostgreSQL connection for Kawa Phase 0.
 
-Local-first: the default DSN is the on-node `kawa` database over the unix socket (peer auth),
-so no secret lives in the repo or environment. A remote/service profile can override via KAWA_DSN.
+FAIL-CLOSED (#129 step 12A, round-2 F1): there is NO default database. The old
+implicit default (`KAWA_DSN` unset => the dogfood `kawa` DB) was the escape
+hatch every automation accident travels through — a test fixture reached the
+production log through exactly that door on 2026-08-12 (plan-2026-08-12-log-loss).
+The dogfood database is only ever reached by NAMING it: every entrypoint goes
+through `connect()`, so the refusal covers migrations, scripts, and services
+structurally, not by enumeration.
 """
 from __future__ import annotations
 
@@ -11,7 +16,13 @@ import psycopg
 
 
 def default_dsn() -> str:
-    return os.environ.get("KAWA_DSN", "dbname=kawa")
+    dsn = os.environ.get("KAWA_DSN")
+    if not dsn:
+        raise RuntimeError(
+            "KAWA_DSN is not set and Kawa refuses to guess a database "
+            "(#129 12A fail-closed). Name the target explicitly, e.g. "
+            "KAWA_DSN='dbname=kawa' for the dogfood log.")
+    return dsn
 
 
 def connect(dsn: str | None = None) -> psycopg.Connection:

@@ -1,0 +1,13 @@
+# Step 12A (#129): daily archive export + restore-proof over the dogfood log.
+# Loud path: exit != 0 on any verification failure; OnFailure surfaces unit
+# state; the Observation + status file are written by the script itself.
+[Unit]
+Description=kawa archive cycle — export full segments + restore-proof (12A)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/kawa
+Environment=KAWA_DSN=dbname=kawa
+Environment=KAWA_NODE=panoplia
+TimeoutStartSec=5m
+ExecStart=%h/kawa/.venv/bin/python scripts/archive_cycle.py

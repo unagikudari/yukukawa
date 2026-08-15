@@ -84,6 +84,20 @@ def archive_export(conn: psycopg.Connection, *, origin_node: str, from_seq: int,
 
 def verify_archive_file(path: str, *, keys: PublicKeyRegistry) -> tuple[list[Event], dict]:
     """The four layers, in order; raises ArchiveVerificationError naming the failed layer."""
+    try:
+        return _verify_archive_doc(path, keys=keys)
+    except ArchiveVerificationError:
+        raise
+    except json.JSONDecodeError as exc:
+        # the pre-existing 9c wording contract: garbage bytes are "unreadable"
+        raise ArchiveVerificationError(f"unreadable archive: {exc}") from exc
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        # PR #130 review: a structurally broken file is a FAILED verification,
+        # never an unhandled crash that aborts the whole proof batch
+        raise ArchiveVerificationError(f"malformed archive file: {type(exc).__name__}: {exc}") from exc
+
+
+def _verify_archive_doc(path: str, *, keys: PublicKeyRegistry) -> tuple[list[Event], dict]:
     with open(path, encoding="utf-8") as f:
         doc = json.load(f)
     commitment = doc["commitment"]
