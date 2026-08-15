@@ -1,0 +1,14 @@
+# Step 12B (#129): standing replica pull — anti-entropy through the full admission
+# gate, frontier-lag Observation per cycle. Loud path: any admission reject or
+# failure exits 2; the Observation + status file are written by the script itself.
+# KAWA_DSN / KAWA_SOURCE_DSN / KAWA_NODE come from the EnvironmentFile (the source
+# DSN carries a password — mode 0600, never unit text).
+[Unit]
+Description=kawa replica pull — anti-entropy + frontier lag observation (12B)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/kawa
+EnvironmentFile=%h/.kawa/replica.env
+TimeoutStartSec=4m
+ExecStart=%h/kawa/.venv/bin/python scripts/replica_pull.py

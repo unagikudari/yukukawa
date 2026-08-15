@@ -8,8 +8,18 @@
   APPEND    — insert the envelope + the typed per-kind payload row (one transaction)
 
 Append-only (no UPDATE/DELETE) is enforced in the database (sql/0003).
+
+ATTEST is fail-closed against a LIVE target (#129 12B deviation review, finding 1):
+a process that has named a real database (`KAWA_DSN` set — the same door `connect()`
+fail-closes on) may not emit unattested events. The 2026-08-15 measurement showed why
+convention is not enough: production emitted 230/230 events unsigned while the
+credential sat on disk, and replication admission rejected the entire log. The test
+fence (`conftest` drops `KAWA_DSN`) composes: tests emit unattested freely; naming a
+live target means signing at birth.
 """
 from __future__ import annotations
+
+import os
 
 import psycopg
 
@@ -90,6 +100,12 @@ class Emitter:
             # identity (event_id stays = content_hash) and is NOT fed back into the hash. Absent when
             # the identity is unattested (no credential) — recorded honestly as NULL, never faked.
             cred = self.identity.credential
+            if cred is None and os.environ.get("KAWA_DSN"):
+                raise RuntimeError(
+                    "unattested emit against a live target: KAWA_DSN is set but the "
+                    "IdentityContext carries no credential. Construct the identity with "
+                    "IdentityContext.from_local_node(load_or_create_local_node(...)) — "
+                    "cross-node admission rejects unsigned events (#129 12B).")
             signature = cred.sign(self_hash) if cred is not None else None
             signing_key_ref = cred.signing_key_ref if cred is not None else None
             signature_scheme = cred.signature_scheme if cred is not None else None

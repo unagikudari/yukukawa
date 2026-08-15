@@ -26,8 +26,7 @@ def main() -> int:
         cur.execute(f"TRUNCATE {_ALL}")   # begin real Kawa history at event #1
     conn.commit()
 
-    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
-        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+    k = Kawa(conn, identity=IdentityContext.from_credential_file(
         actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
 
     k.create_plan("plan-pr55-fold", "kawa",

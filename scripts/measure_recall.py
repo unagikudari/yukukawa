@@ -43,8 +43,8 @@ def main() -> int:
             with open(args.blind_export, "w", encoding="utf-8") as f:
                 json.dump(blind_export(report), f, indent=2, ensure_ascii=False)
         if args.record and report["verdict"] not in ("INVALID_CORPUS",):
-            kawa = Kawa(conn, identity=IdentityContext.from_local_runtime(
-                node_ref=os.environ.get("KAWA_NODE", "local"), actor_ref="recall-harness"))
+            kawa = Kawa(conn, identity=IdentityContext.from_credential_file(
+                actor_ref="recall-harness"))
             fetched = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             dg = corpus_digest(raw)
             src = f"file://{os.path.abspath(args.corpus)}"

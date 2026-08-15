@@ -41,8 +41,7 @@ def snapshot(conn) -> dict[str, object]:  # type: ignore[no-untyped-def]
 def main() -> int:
     conn = connect()
     reset(conn)
-    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
-        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+    k = Kawa(conn, identity=IdentityContext.from_credential_file(
         actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
 
     print("1. create Plan")

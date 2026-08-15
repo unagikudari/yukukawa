@@ -43,6 +43,27 @@ class IdentityContext:
         return cls(node_ref=node_ref, actor_ref=actor_ref, assurance=assurance)
 
     @classmethod
+    def from_credential_file(cls, *, actor_ref: str,
+                             path: str | None = None) -> "IdentityContext":
+        """The production identity (#129 12B): attested from the node credential file.
+
+        Every production entrypoint that EMITS uses this — `emit()` refuses an
+        unattested identity once a live target is named (`KAWA_DSN`), so the unsigned
+        drift the 2026-08-15 measurement exposed cannot recur silently. The path
+        default is the 12A-pinned `~/.kawa/node_credential.json`; `KAWA_CREDENTIAL`
+        overrides. `origin_node` comes from the credential, never the caller.
+        """
+        import os
+
+        from kawa.domain.credential import load_or_create_local_node
+
+        p = path or os.environ.get("KAWA_CREDENTIAL") or "~/.kawa/node_credential.json"
+        node = os.environ.get("KAWA_NODE") or os.uname().nodename.split(".")[0]
+        return cls.from_local_node(
+            load_or_create_local_node(os.path.expanduser(p), node_ref=node),
+            actor_ref=actor_ref)
+
+    @classmethod
     def from_local_node(cls, credential: "object", *, actor_ref: str) -> "IdentityContext":
         """Establish identity from an attested local Node credential (Phase 4A, first assurance profile).
 

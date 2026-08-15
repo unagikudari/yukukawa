@@ -115,8 +115,9 @@ def run_cycle(conn, *, node_ref: str, actor_ref: str, archive_dir: str,
         status.update({"ok": ok, "segments": n, "exported_this_run": exported,
                        "failed": len(failures), "failures": failures[:5],
                        "lag": lag})
-        kawa = Kawa(conn, identity=IdentityContext.from_local_runtime(
-            node_ref=node_ref, actor_ref=actor_ref))
+        # sign at birth (#129 12B): the SAME credential that attests the archive
+        # attests the Observation — from_local_runtime here was the unsigned-drift hole
+        kawa = Kawa(conn, identity=IdentityContext.from_local_node(cred, actor_ref=actor_ref))
         rev = (f"segments={n} exported={exported} failed={len(failures)} "
                f"lag={sum(lag.values())} policy_digest={pdg}")
         if failures:

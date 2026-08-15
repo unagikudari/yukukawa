@@ -28,8 +28,7 @@ vendor-A 第1レーン は NOT_CONFORMING / surviving_counterexamples=true と�
 
 def main() -> int:
     conn = connect()
-    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
-        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+    k = Kawa(conn, identity=IdentityContext.from_credential_file(
         actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
     k.create_plan("plan-keystone", "kawa", "review & freeze the Operation & Effect Identity keystone (#60)")
     k.set_plan_lifecycle("plan-keystone", "running")

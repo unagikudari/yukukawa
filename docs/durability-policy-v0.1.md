@@ -23,6 +23,39 @@ Changing any value changes the digest; the measurement lineage visibly splits.
 - credential: the node's Ed25519 credential (`~/.kawa/node_credential.json`,
   mode 0600, git-ignored); its public half registered in `~/.kawa/keys.json`
 
+## Replica (12B)
+
+- topology: ONE replica node pulling FROM panoplia (client-driven `pull()` over
+  Tailscale IPv6, read-only `kawa_replica` postgres role on the source; the
+  replica's own postgres cluster is named by `KAWA_DSN`, the source only by
+  `KAWA_SOURCE_DSN` — both fail-closed, nothing is guessed)
+- cadence: every 15 minutes (systemd timer `kawa-replica-pull.timer`)
+- per cycle: one `replication_frontier_lag` Observation in the REPLICA's local
+  log (signed at birth); any admission reject additionally emits ONE
+  `replication_admission_reject` Observation naming the reasons + process exit 2
+  (#129 rev 3 F6: a reject is loud; a replica is never "green while omitting")
+- scoped payloads: the service emits fleet-scoped v2 by default (#113 BC-iii), so
+  the replica runs WITH a source-trust MIRROR (`--source-trust`, operator-managed
+  copy of the source's serving registry granting this puller `fleet`) — a
+  client-driven pull cannot enforce the offer side anyway (the read-only SQL role
+  exposes the rows); the mirror computes the same offer/retain sets a serving
+  transport would, and is retired when one exists (DEFERRED). Absent the mirror,
+  v2 payloads cross as STUBS — the least-visible fail-direction (#113 9b); the
+  status file reports `materialized` and `stubs` SEPARATELY every cycle
+  (deviation review finding 4)
+- attestation: cross-node admission requires signatures (step 8). The pre-12B
+  unsigned history is closed by the audited custodian backfill
+  (`scripts/attest_backfill.py`, sql/0015 — monotone signature NULL→value, one
+  atomic transaction per origin, one `attestation_backfill` Observation).
+  Sign-at-birth is mechanized: `emit()` refuses an unattested identity when
+  `KAWA_DSN` names a live target (deviation review finding 1)
+- terminated origins (`local`, `test`): backfill-signed with EPHEMERAL keys whose
+  private halves are discarded after signing (finding 2); every replica enrolls
+  them SEALED — `revoke(key, from_seq=head+1)` — so no future event of those
+  origins can ever be admitted
+- status file: `~/.kawa/status/replica.status` (written on EVERY run, success or
+  failure; staleness bound `now − status.ts > 2 × cadence`, same as 12A)
+
 ## Surfaces (12A slice of R5)
 
 - status file: `~/.kawa/status/archive.status` (machine-readable JSON, written

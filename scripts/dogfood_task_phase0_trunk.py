@@ -14,8 +14,7 @@ from kawa.storage.db import connect
 
 def main() -> int:
     conn = connect()
-    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
-        node_ref=os.environ.get("KAWA_ORIGIN_NODE", "node-a"),
+    k = Kawa(conn, identity=IdentityContext.from_credential_file(
         actor_ref=os.environ.get("KAWA_ACTOR_REF", "vendor-local")))
 
     k.create_plan("plan-phase0-trunk", "kawa",

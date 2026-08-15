@@ -46,8 +46,8 @@ if __name__ == "__main__":
     keys = PublicKeyRegistry(sys.argv[2] if len(sys.argv) > 2 else
                              os.path.expanduser("~/.kawa/keys.json"))
     with connect() as conn:
-        kawa = Kawa(conn, identity=IdentityContext.from_local_runtime(
-            node_ref=os.environ.get("KAWA_NODE", "local"), actor_ref="archive-verify"))
+        kawa = Kawa(conn, identity=IdentityContext.from_credential_file(
+            actor_ref="archive-verify"))
         ok = verify_and_record(kawa, path, keys)
     print(f"{'OK' if ok else 'FAILED'} {path} (Observation recorded)")
     sys.exit(0 if ok else 1)

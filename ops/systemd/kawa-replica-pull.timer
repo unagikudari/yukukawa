@@ -1,0 +1,10 @@
+[Unit]
+Description=kawa replica pull every 15 minutes (durability policy v0.1, 12B)
+
+[Timer]
+OnCalendar=*:00/15
+Persistent=true
+RandomizedDelaySec=90
+
+[Install]
+WantedBy=timers.target
