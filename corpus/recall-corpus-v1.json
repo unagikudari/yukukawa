@@ -1,0 +1,670 @@
+{
+  "corpus_id": "recall-corpus-v1",
+  "version": "1.0.0",
+  "status": "APPROVED — labels reviewed and approved by the operator (2026-08-14T20:12:30Z, panoplia-cc-primary session); drafted by panoplia-cc-primary from the real dogfood log",
+  "log_state": "dbname=kawa, 216 events, as-of 2026-08-14T20:04:46Z (post PR #123 merge, f9afbfe)",
+  "methodology": "Queries cut from the real dogfood history per #122 11A: failure_sourced = questions actually answered OUTSIDE retrieve() during kawa sessions (session logs, broker thread kawa-phase4-node-trust, GitHub threads, brief.py runs); cross_reference = the labeled relevant set spans records connected only by meaning (review<->result<->plan<->claim); found = direct lookups from normal operation. Labels live in retrieve()'s ref space (event ids / plan_refs / work_refs).",
+  "queries": [
+    {
+      "query_id": "al-01",
+      "question": "Show me the roadmap plan we are executing.",
+      "expected_class": "anchor_lookup",
+      "sampling": "found",
+      "intent": {
+        "about": "plan-roadmap"
+      },
+      "labels": [
+        "plan-roadmap"
+      ],
+      "provenance": "repo:scripts/brief.py — every session bootstrap opens with this lookup",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-02",
+      "question": "What is w-step11-vector-retrieval?",
+      "expected_class": "anchor_lookup",
+      "sampling": "found",
+      "intent": {
+        "about": "w-step11-vector-retrieval"
+      },
+      "labels": [
+        "w-step11-vector-retrieval"
+      ],
+      "provenance": "github:unagikudari/kawa#122 — the step this corpus itself serves",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-03",
+      "question": "What happened to the dogfood event log on 2026-08-12?",
+      "expected_class": "anchor_lookup",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "plan-2026-08-12-log-loss"
+      },
+      "labels": [
+        "plan-2026-08-12-log-loss"
+      ],
+      "provenance": "answered outside retrieve() from session memory/git during the 2026-08-12 incident; the record itself: log:sha256:6b1ebaef4f7213591da025b25cb49e3d78b46e683f1bb9cc30d6feb83a47faca",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-04",
+      "question": "Show the plan.created record that re-sequenced the roadmap to v0.5 §23.",
+      "expected_class": "anchor_lookup",
+      "sampling": "found",
+      "intent": {
+        "about": "sha256:9723df343422e8bc5856fb706bcd3f05009f3dd8fe8b5a3ceb00bf7ea4af8beb"
+      },
+      "labels": [
+        "sha256:9723df343422e8bc5856fb706bcd3f05009f3dd8fe8b5a3ceb00bf7ea4af8beb"
+      ],
+      "provenance": "log:sha256:9723df34… (plan-roadmap objective event, v0.5 §23 13-step order)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-05",
+      "question": "Is w-phase5-authority still an actionable work item?",
+      "expected_class": "anchor_lookup",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "w-phase5-authority"
+      },
+      "labels": [
+        "w-phase5-authority"
+      ],
+      "provenance": "answered outside retrieve() via brief.py roadmap listing when the #72 order was superseded; broker:memory/c1f463c2-875c-4a5a-9ea2-e6d023df97dc thread context",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-06",
+      "question": "Look up plan-step10-authority-cells.",
+      "expected_class": "anchor_lookup",
+      "sampling": "found",
+      "intent": {
+        "about": "plan-step10-authority-cells"
+      },
+      "labels": [
+        "plan-step10-authority-cells"
+      ],
+      "provenance": "github:unagikudari/kawa#118 (step 10 planning issue)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-07",
+      "question": "Show the step-7 review work — and what came of it.",
+      "expected_class": "anchor_lookup",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "w-review-step07-impl"
+      },
+      "labels": [
+        "w-review-step07-impl",
+        "sha256:1e1e2d9b60eda579a57f50202539cfb3dd19694e091ca3b41ae59f598d40ddfa"
+      ],
+      "provenance": "github:unagikudari/kawa PR #109 review thread; the recorded review Result log:sha256:1e1e2d9b…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-08",
+      "question": "What is the step after vector retrieval (w-step12)?",
+      "expected_class": "anchor_lookup",
+      "sampling": "found",
+      "intent": {
+        "about": "w-step12-durability-dogfood"
+      },
+      "labels": [
+        "w-step12-durability-dogfood"
+      ],
+      "provenance": "repo:scripts/brief.py roadmap listing (blocked step shown every session)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "al-09",
+      "question": "What is plan 'p2' that shows up in the plan list?",
+      "expected_class": "anchor_lookup",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "p2"
+      },
+      "labels": [
+        "p2"
+      ],
+      "provenance": "answered outside retrieve() by reading tests/test_bridge.py — p2/bridge2 is the bridge-test remnant that also explains the 2026-08-12 log truncation",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-01",
+      "question": "What is the standing of the claim that step 2 is implemented, reviewed and merged?",
+      "expected_class": "standing",
+      "sampling": "found",
+      "intent": {
+        "about": "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+      },
+      "labels": [
+        "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+      ],
+      "provenance": "log:sha256:3b5a19d3… (claim.recorded, dogfood of step 2 completion)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-02",
+      "question": "Is 'the next actionable roadmap step is w-phase5-authority' still a held position?",
+      "expected_class": "standing",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+      },
+      "labels": [
+        "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+        "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "provenance": "answered outside retrieve() via brief.py + the v0.5 re-sequencing session; the correcting claim log:sha256:4fbd05bc… was never linked to the stale one",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-03",
+      "question": "What standing does the v0.5 §23 re-sequencing claim have?",
+      "expected_class": "standing",
+      "sampling": "found",
+      "intent": {
+        "about": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      },
+      "labels": [
+        "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "provenance": "log:sha256:4fbd05bc… (claim.recorded at the re-sequencing)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-04",
+      "question": "What do we currently hold about the next actionable roadmap step?",
+      "expected_class": "standing",
+      "sampling": "cross_reference",
+      "intent": {
+        "text_terms": "next actionable roadmap step"
+      },
+      "labels": [
+        "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+        "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "provenance": "the two claims are a contradicting pair connected only by meaning — no link event exists between them; log:sha256:c8a94c14… / log:sha256:4fbd05bc…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-05",
+      "question": "Did step 2 (epistemic nucleus) actually land?",
+      "expected_class": "standing",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+        "text_terms": "epistemic nucleus merged"
+      },
+      "labels": [
+        "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+        "sha256:e3f88b70457dcc157e90770b9596cb30e9c02d5ecadad6e5ba2bec3ddfe3e369"
+      ],
+      "provenance": "answered outside retrieve() from the GitHub PR #99 state; that answer was recorded as observation log:sha256:e3f88b70… (kawa_pr_99_state=merged)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-06",
+      "question": "The phase5-authority claim — what is its standing, and what superseded its content?",
+      "expected_class": "standing",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+        "text_terms": "re-sequenced queue head"
+      },
+      "labels": [
+        "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+        "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "provenance": "cross-reference between the stale claim and the re-sequencing claim (meaning-only connection); log:sha256:c8a94c14… / log:sha256:4fbd05bc…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-07",
+      "question": "Which claim says the queue head moved to the semantic-convergence steps?",
+      "expected_class": "standing",
+      "sampling": "found",
+      "intent": {
+        "text_terms": "queue head semantic convergence"
+      },
+      "labels": [
+        "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "provenance": "log:sha256:4fbd05bc… (claim proposition contains the phrase)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "st-08",
+      "question": "どの claim がまだ unevaluated のまま残っている？",
+      "expected_class": "standing",
+      "sampling": "failure_sourced",
+      "intent": {
+        "text_terms": "どの claim がまだ unevaluated か"
+      },
+      "labels": [
+        "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+        "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+        "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "provenance": "answered outside retrieve() by psql over current_claim_standing during console work — a real operator question the english-FTS lexical class cannot express",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-01",
+      "question": "What evidence backs the claim that step 2 is implemented, reviewed, merged?",
+      "expected_class": "evidence",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+      },
+      "labels": [
+        "w-step02-epistemic-nucleus",
+        "w-review-step02-impl"
+      ],
+      "provenance": "the step-2 implement/review works and their success Results are the claim's actual grounds — connected only by meaning, no supports link was recorded; github PR #99",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-02",
+      "question": "What in the log contradicts 'next actionable step is w-phase5-authority'?",
+      "expected_class": "evidence",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+      },
+      "labels": [
+        "w-phase5-authority",
+        "sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68"
+      ],
+      "provenance": "the failure Result log:sha256:5b80fd41… retiring w-phase5-authority contradicts the stale claim — meaning-only connection, no contradicts link exists",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-03",
+      "question": "Which plan enacted the v0.5 §23 re-sequencing the claim describes?",
+      "expected_class": "evidence",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      },
+      "labels": [
+        "plan-roadmap-v05",
+        "sha256:9723df343422e8bc5856fb706bcd3f05009f3dd8fe8b5a3ceb00bf7ea4af8beb"
+      ],
+      "provenance": "plan-roadmap-v05 and the re-sequenced plan-roadmap objective event are the claim's grounds; log:sha256:eb20977f… (ended), log:sha256:9723df34…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-04",
+      "question": "What was the step-2 review verdict that the merged-claim rests on?",
+      "expected_class": "evidence",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+        "text_terms": "step 2 review verdict"
+      },
+      "labels": [
+        "sha256:d47dabb14915f35deec015baf4a8bd1c1bd9bcdb05b1ca819cc04a121111dfb2"
+      ],
+      "provenance": "answered outside retrieve() from the GitHub PR #99 review thread; the recorded review Result is log:sha256:d47dabb1…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-05",
+      "question": "Did the re-sequencing plan itself run to completion?",
+      "expected_class": "evidence",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      },
+      "labels": [
+        "sha256:eb20977f1788f62862e2233833c243dda40c47d2dad8f1fece033816f457b705"
+      ],
+      "provenance": "answered outside retrieve() from brief.py plan listing at the time; the ended lifecycle event is log:sha256:eb20977f…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-06",
+      "question": "Show the recorded Result of the step-2 implementation work.",
+      "expected_class": "evidence",
+      "sampling": "found",
+      "intent": {
+        "about": "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+      },
+      "labels": [
+        "sha256:ecb956166a4536b9c6547e5b195dc744deb4a19c0181236617a955b2d519c24d"
+      ],
+      "provenance": "log:sha256:ecb95616… (result.recorded, w-step02-epistemic-nucleus success)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-07",
+      "question": "Why did the old phase5/phase6 works fail rather than complete?",
+      "expected_class": "evidence",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+      },
+      "labels": [
+        "sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+        "sha256:ce8d282842b93562f5adbbafe37b563bb1b021dc582f5581cd437a5d1bf2ec47"
+      ],
+      "provenance": "answered outside retrieve() from git history + the v0.5 re-sequencing session; failure Results log:sha256:5b80fd41… / log:sha256:ce8d2828…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "ev-08",
+      "question": "Which works became the new queue head the re-sequencing claim announces?",
+      "expected_class": "evidence",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      },
+      "labels": [
+        "w-step00-schema-reconcile",
+        "w-step01-replace-fact-semantics"
+      ],
+      "provenance": "the semantic-convergence steps the claim names are w-step00/w-step01 — meaning-only cross-reference into the Work DAG; github:unagikudari/kawa#122 roadmap listing",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-01",
+      "question": "What is linked around the step-5 plan approval event?",
+      "expected_class": "neighborhood",
+      "sampling": "found",
+      "intent": {
+        "about": "sha256:25853c20e6b5c579b71c889b3fd9a9846f47f9a62a8a54cf3fb5ad8904a496bb"
+      },
+      "labels": [
+        "sha256:a9c9257b69ac68185ee2163f1fad28194a31dff3ebb966ab4a5f3f7331d52371"
+      ],
+      "provenance": "resolved based_on link in the log: 25853c20 -> a9c9257b (approved-semantics digest observation)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-02",
+      "question": "What does the step-11 plan's running event rest on?",
+      "expected_class": "neighborhood",
+      "sampling": "found",
+      "intent": {
+        "about": "sha256:9c9af5729d03bc507de266766f9761d864d8041d5e7daf605e65921373f1e3ee"
+      },
+      "labels": [
+        "sha256:f31ba7a6b4b3f80589bdb110e2e1026b399e26ce55a302b96713edf79ff9cbf9"
+      ],
+      "provenance": "resolved based_on link: 9c9af572 -> f31ba7a6 (plan_approved_semantics_digest for #122 rev 2)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-03",
+      "question": "Which plan event cites this approved-semantics observation (step 5)?",
+      "expected_class": "neighborhood",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "sha256:a9c9257b69ac68185ee2163f1fad28194a31dff3ebb966ab4a5f3f7331d52371"
+      },
+      "labels": [
+        "sha256:25853c20e6b5c579b71c889b3fd9a9846f47f9a62a8a54cf3fb5ad8904a496bb"
+      ],
+      "provenance": "reverse direction of the resolved based_on link (observation -> citing plan lifecycle event)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-04",
+      "question": "Everything around plan-step09-basin-archive: its works and its approval pin.",
+      "expected_class": "neighborhood",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "plan-step09-basin-archive"
+      },
+      "labels": [
+        "w-step09-basin-archive",
+        "sha256:d064e6cdccb2a8952e84602d8dfde2f1ef6a6defb1e5a29c5c8e0b9b0c67abfd"
+      ],
+      "provenance": "the plan's derived work and its approved-semantics observation — related via event_work.plan_ref and a based_on link that anchors at the lifecycle EVENT, not the plan_ref; github PR #117",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-05",
+      "question": "What happened with step 10 — the work and its outcome together?",
+      "expected_class": "neighborhood",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "w-step10-authority-cells"
+      },
+      "labels": [
+        "sha256:0032a43f23736768f2067a4acf513f0ae9e818d063400d21dbfc28dfa662d0cb",
+        "plan-step10-authority-cells"
+      ],
+      "provenance": "answered outside retrieve() from broker:memory/c1f463c2… thread + GitHub PRs #119/#120/#121; the Result is log:sha256:0032a43f…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-06",
+      "question": "Which works belong to the phase-4A node-trust plan?",
+      "expected_class": "neighborhood",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "plan-node-trust"
+      },
+      "labels": [
+        "w-attest-origin",
+        "w-trust-lifecycle",
+        "w-phase4c-replication",
+        "w-review-phase4c"
+      ],
+      "provenance": "answered outside retrieve() via brief.py projections (open-plans listing); github:unagikudari/kawa#73",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-07",
+      "question": "What sits around the step-10 plan running event?",
+      "expected_class": "neighborhood",
+      "sampling": "found",
+      "intent": {
+        "about": "sha256:82e9be831bc80b1ea1cc2cad411115a8ba2eb547dac6f5620807bedd9e5290cc"
+      },
+      "labels": [
+        "sha256:93e8525377d9c6d959a52815aaad069ed4c1c7e89be72868b6712c684f5dc599"
+      ],
+      "provenance": "resolved based_on link: 82e9be83 -> 93e85253",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-08",
+      "question": "Open the log-loss record — what exactly does it state and how was it closed?",
+      "expected_class": "neighborhood",
+      "sampling": "failure_sourced",
+      "intent": {
+        "about": "plan-2026-08-12-log-loss"
+      },
+      "labels": [
+        "sha256:6b1ebaef4f7213591da025b25cb49e3d78b46e683f1bb9cc30d6feb83a47faca",
+        "sha256:51d11568d77f1575dc0b18ca654cae0d1e2f70549461df9ce5505efa7c6b42ed"
+      ],
+      "provenance": "answered outside retrieve() from session memory during the incident; the objective and ended events are log:sha256:6b1ebaef… / log:sha256:51d11568…",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "nb-09",
+      "question": "What does the step-8 running event rest on?",
+      "expected_class": "neighborhood",
+      "sampling": "cross_reference",
+      "intent": {
+        "about": "sha256:433657ac70022232253ecaef55b42d33971a401eb652624f6dcf5ca0b3f17e41"
+      },
+      "labels": [
+        "sha256:95c2e6688c7edc4fb224bbb4a15f800c778460487db5fcf58f96bd185fd41cad"
+      ],
+      "provenance": "resolved based_on link: 433657ac -> 95c2e668 (cross-reference between plan lifecycle and its approval observation)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-01",
+      "question": "Search: epistemic nucleus",
+      "expected_class": "lexical",
+      "sampling": "found",
+      "intent": {
+        "text_terms": "epistemic nucleus"
+      },
+      "labels": [
+        "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+        "plan-step02-epistemic-nucleus"
+      ],
+      "provenance": "direct phrase from the claim proposition and the step-2 plan objective",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-02",
+      "question": "Search: log truncated fixture",
+      "expected_class": "lexical",
+      "sampling": "found",
+      "intent": {
+        "text_terms": "log truncated fixture"
+      },
+      "labels": [
+        "plan-2026-08-12-log-loss"
+      ],
+      "provenance": "phrase from the log-loss plan objective (tests/test_bridge.py fixture truncation)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-03",
+      "question": "どこまで進んだ？ (how far along are we?)",
+      "expected_class": "lexical",
+      "sampling": "failure_sourced",
+      "intent": {
+        "text_terms": "どこまで進んだ"
+      },
+      "labels": [
+        "plan-roadmap",
+        "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "provenance": "the perennial session question — always answered outside retrieve() by scripts/brief.py; english-config FTS cannot express it",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-04",
+      "question": "Search: recall gate corpus",
+      "expected_class": "lexical",
+      "sampling": "failure_sourced",
+      "intent": {
+        "text_terms": "recall gate corpus"
+      },
+      "labels": [
+        "plan-step11-vector-retrieval"
+      ],
+      "provenance": "asked while resuming 11A work — answered outside retrieve() from broker:memory/c1f463c2… before this corpus existed",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-05",
+      "question": "Search: wake pull ghost participant",
+      "expected_class": "lexical",
+      "sampling": "cross_reference",
+      "intent": {
+        "text_terms": "wake pull ghost participant"
+      },
+      "labels": [
+        "plan-step07-wake-pull",
+        "w-7c-ghost-invariant"
+      ],
+      "provenance": "the step-7 plan objective names the ghost-participant fix; the enacting work w-7c is reachable only through the Work DAG, not FTS (works are not in the lexical substrate)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-06",
+      "question": "Search: incarnation credential broker",
+      "expected_class": "lexical",
+      "sampling": "cross_reference",
+      "intent": {
+        "text_terms": "incarnation credential broker"
+      },
+      "labels": [
+        "plan-step05-incarnation",
+        "w-5b-credential-broker"
+      ],
+      "provenance": "step-5 plan objective + the credential-broker work — the work is connected only via plan_ref, outside the FTS substrate",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-07",
+      "question": "How many tests were passing (the recorded count)?",
+      "expected_class": "lexical",
+      "sampling": "failure_sourced",
+      "intent": {
+        "text_terms": "test count how many passing"
+      },
+      "labels": [
+        "sha256:5ac34c59cf3ee71402e934052c08c218742daab8584b292fb0f9dbe93e6842aa"
+      ],
+      "provenance": "answered outside retrieve() by running pytest; the recorded pytest_passed_count observation is log:sha256:5ac34c59… — observations are outside the FTS substrate",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    },
+    {
+      "query_id": "lx-08",
+      "question": "Search: authority cells receipts succession",
+      "expected_class": "lexical",
+      "sampling": "found",
+      "intent": {
+        "text_terms": "authority cells receipts succession"
+      },
+      "labels": [
+        "plan-step10-authority-cells"
+      ],
+      "provenance": "phrases from the step-10 plan objective (configurations + proven succession + Receipts)",
+      "labeled_by": "unagikudari (operator; drafted by panoplia-cc-primary)",
+      "labeled_at": "2026-08-14T20:12:30Z"
+    }
+  ],
+  "approval": {
+    "approved_by": "unagikudari (operator)",
+    "approved_at": "2026-08-14T20:12:30Z",
+    "session": "panoplia-cc-primary, 2026-08-15 JST",
+    "method": "reviewed the draft queries + labels + provenance in-session and approved verbatim"
+  }
+}

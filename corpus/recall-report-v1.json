@@ -1,0 +1,1471 @@
+{
+  "verdict": "GO",
+  "go_classes": [
+    "evidence",
+    "neighborhood"
+  ],
+  "bar": 0.75,
+  "min_class_n": 8,
+  "corpus_digest": "sha256:08aa4da1dd5685f5be04195c8b4519a31b035b82fe9e3097a4a5d79c3a3798fa",
+  "classes": {
+    "anchor_lookup": {
+      "n": 9,
+      "insufficient_n": false,
+      "labels_total": 10,
+      "labels_hit": 9,
+      "micro_recall": 0.9,
+      "sub_bar": false,
+      "counted_recall": 0.9,
+      "counted_one_label_flip": 1.0,
+      "counted_sub_bar": false,
+      "survives_one_label_flip": false,
+      "semantic_candidates": [
+        "al-07::sha256:1e1e2d9b60eda579a57f50202539cfb3dd19694e091ca3b41ae59f598d40ddfa"
+      ],
+      "agreed_semantic": [
+        "al-07::sha256:1e1e2d9b60eda579a57f50202539cfb3dd19694e091ca3b41ae59f598d40ddfa"
+      ],
+      "disputed": [],
+      "misses": [
+        {
+          "miss_key": "al-07::sha256:1e1e2d9b60eda579a57f50202539cfb3dd19694e091ca3b41ae59f598d40ddfa",
+          "query_id": "al-07",
+          "expected_record": "sha256:1e1e2d9b60eda579a57f50202539cfb3dd19694e091ca3b41ae59f598d40ddfa",
+          "retrieved_ids": [
+            "w-review-step07-impl"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        }
+      ]
+    },
+    "standing": {
+      "n": 8,
+      "insufficient_n": false,
+      "labels_total": 14,
+      "labels_hit": 8,
+      "micro_recall": 0.5714285714285714,
+      "sub_bar": true,
+      "counted_recall": 0.7857142857142857,
+      "counted_one_label_flip": 0.8571428571428572,
+      "counted_sub_bar": false,
+      "survives_one_label_flip": false,
+      "semantic_candidates": [
+        "st-02::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+        "st-04::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+        "st-05::sha256:e3f88b70457dcc157e90770b9596cb30e9c02d5ecadad6e5ba2bec3ddfe3e369",
+        "st-08::sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+        "st-08::sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+        "st-08::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "agreed_semantic": [
+        "st-02::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+        "st-04::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+        "st-05::sha256:e3f88b70457dcc157e90770b9596cb30e9c02d5ecadad6e5ba2bec3ddfe3e369"
+      ],
+      "disputed": [
+        "st-08::sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+        "st-08::sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+        "st-08::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+      ],
+      "misses": [
+        {
+          "miss_key": "st-02::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "query_id": "st-02",
+          "expected_record": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "retrieved_ids": [
+            "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "st-04::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "query_id": "st-04",
+          "expected_record": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "retrieved_ids": [
+            "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+          ],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "st-05::sha256:e3f88b70457dcc157e90770b9596cb30e9c02d5ecadad6e5ba2bec3ddfe3e369",
+          "query_id": "st-05",
+          "expected_record": "sha256:e3f88b70457dcc157e90770b9596cb30e9c02d5ecadad6e5ba2bec3ddfe3e369",
+          "retrieved_ids": [
+            "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b10",
+            "q1-standing:typed_sql:b10",
+            "q2-evidence:typed_sql:b10",
+            "q3-neighborhood:traversal:b10",
+            "q4-lexical:fts:b10"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "st-08::sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+          "query_id": "st-08",
+          "expected_record": "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67",
+          "retrieved_ids": [],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "st-08::sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+          "query_id": "st-08",
+          "expected_record": "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec",
+          "retrieved_ids": [],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "st-08::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "query_id": "st-08",
+          "expected_record": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "retrieved_ids": [],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        }
+      ]
+    },
+    "evidence": {
+      "n": 8,
+      "insufficient_n": false,
+      "labels_total": 13,
+      "labels_hit": 0,
+      "micro_recall": 0.0,
+      "sub_bar": true,
+      "counted_recall": 0.07692307692307687,
+      "counted_one_label_flip": 0.15384615384615385,
+      "counted_sub_bar": true,
+      "survives_one_label_flip": true,
+      "semantic_candidates": [
+        "ev-01::w-step02-epistemic-nucleus",
+        "ev-01::w-review-step02-impl",
+        "ev-02::w-phase5-authority",
+        "ev-02::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+        "ev-03::plan-roadmap-v05",
+        "ev-03::sha256:9723df343422e8bc5856fb706bcd3f05009f3dd8fe8b5a3ceb00bf7ea4af8beb",
+        "ev-04::sha256:d47dabb14915f35deec015baf4a8bd1c1bd9bcdb05b1ca819cc04a121111dfb2",
+        "ev-05::sha256:eb20977f1788f62862e2233833c243dda40c47d2dad8f1fece033816f457b705",
+        "ev-06::sha256:ecb956166a4536b9c6547e5b195dc744deb4a19c0181236617a955b2d519c24d",
+        "ev-07::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+        "ev-07::sha256:ce8d282842b93562f5adbbafe37b563bb1b021dc582f5581cd437a5d1bf2ec47",
+        "ev-08::w-step00-schema-reconcile",
+        "ev-08::w-step01-replace-fact-semantics"
+      ],
+      "agreed_semantic": [
+        "ev-01::w-step02-epistemic-nucleus",
+        "ev-01::w-review-step02-impl",
+        "ev-02::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+        "ev-03::plan-roadmap-v05",
+        "ev-03::sha256:9723df343422e8bc5856fb706bcd3f05009f3dd8fe8b5a3ceb00bf7ea4af8beb",
+        "ev-04::sha256:d47dabb14915f35deec015baf4a8bd1c1bd9bcdb05b1ca819cc04a121111dfb2",
+        "ev-05::sha256:eb20977f1788f62862e2233833c243dda40c47d2dad8f1fece033816f457b705",
+        "ev-06::sha256:ecb956166a4536b9c6547e5b195dc744deb4a19c0181236617a955b2d519c24d",
+        "ev-07::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+        "ev-07::sha256:ce8d282842b93562f5adbbafe37b563bb1b021dc582f5581cd437a5d1bf2ec47",
+        "ev-08::w-step00-schema-reconcile",
+        "ev-08::w-step01-replace-fact-semantics"
+      ],
+      "disputed": [
+        "ev-02::w-phase5-authority"
+      ],
+      "misses": [
+        {
+          "miss_key": "ev-01::w-step02-epistemic-nucleus",
+          "query_id": "ev-01",
+          "expected_record": "w-step02-epistemic-nucleus",
+          "retrieved_ids": [
+            "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-01::w-review-step02-impl",
+          "query_id": "ev-01",
+          "expected_record": "w-review-step02-impl",
+          "retrieved_ids": [
+            "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-02::w-phase5-authority",
+          "query_id": "ev-02",
+          "expected_record": "w-phase5-authority",
+          "retrieved_ids": [
+            "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-02::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+          "query_id": "ev-02",
+          "expected_record": "sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+          "retrieved_ids": [
+            "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-03::plan-roadmap-v05",
+          "query_id": "ev-03",
+          "expected_record": "plan-roadmap-v05",
+          "retrieved_ids": [
+            "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-03::sha256:9723df343422e8bc5856fb706bcd3f05009f3dd8fe8b5a3ceb00bf7ea4af8beb",
+          "query_id": "ev-03",
+          "expected_record": "sha256:9723df343422e8bc5856fb706bcd3f05009f3dd8fe8b5a3ceb00bf7ea4af8beb",
+          "retrieved_ids": [
+            "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-04::sha256:d47dabb14915f35deec015baf4a8bd1c1bd9bcdb05b1ca819cc04a121111dfb2",
+          "query_id": "ev-04",
+          "expected_record": "sha256:d47dabb14915f35deec015baf4a8bd1c1bd9bcdb05b1ca819cc04a121111dfb2",
+          "retrieved_ids": [
+            "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b10",
+            "q1-standing:typed_sql:b10",
+            "q2-evidence:typed_sql:b10",
+            "q3-neighborhood:traversal:b10",
+            "q4-lexical:fts:b10"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-05::sha256:eb20977f1788f62862e2233833c243dda40c47d2dad8f1fece033816f457b705",
+          "query_id": "ev-05",
+          "expected_record": "sha256:eb20977f1788f62862e2233833c243dda40c47d2dad8f1fece033816f457b705",
+          "retrieved_ids": [
+            "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-06::sha256:ecb956166a4536b9c6547e5b195dc744deb4a19c0181236617a955b2d519c24d",
+          "query_id": "ev-06",
+          "expected_record": "sha256:ecb956166a4536b9c6547e5b195dc744deb4a19c0181236617a955b2d519c24d",
+          "retrieved_ids": [
+            "sha256:3b5a19d322834b325a8791bdadd5722494a0eb88d6a780c4cccfcffa98f04e67"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-07::sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+          "query_id": "ev-07",
+          "expected_record": "sha256:5b80fd41a894a8cb592285a5986659b466f06d14931efefde798804618a25a68",
+          "retrieved_ids": [
+            "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-07::sha256:ce8d282842b93562f5adbbafe37b563bb1b021dc582f5581cd437a5d1bf2ec47",
+          "query_id": "ev-07",
+          "expected_record": "sha256:ce8d282842b93562f5adbbafe37b563bb1b021dc582f5581cd437a5d1bf2ec47",
+          "retrieved_ids": [
+            "sha256:c8a94c142067d5f4b7113e9d22e8664d318ffb620411ee07cc784b703f1dfdec"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-08::w-step00-schema-reconcile",
+          "query_id": "ev-08",
+          "expected_record": "w-step00-schema-reconcile",
+          "retrieved_ids": [
+            "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "ev-08::w-step01-replace-fact-semantics",
+          "query_id": "ev-08",
+          "expected_record": "w-step01-replace-fact-semantics",
+          "retrieved_ids": [
+            "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b13",
+            "q1-standing:typed_sql:b13",
+            "q2-evidence:typed_sql:b12",
+            "q3-neighborhood:traversal:b12"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        }
+      ]
+    },
+    "neighborhood": {
+      "n": 9,
+      "insufficient_n": false,
+      "labels_total": 15,
+      "labels_hit": 5,
+      "micro_recall": 0.3333333333333333,
+      "sub_bar": true,
+      "counted_recall": 0.33333333333333337,
+      "counted_one_label_flip": 0.4,
+      "counted_sub_bar": true,
+      "survives_one_label_flip": true,
+      "semantic_candidates": [
+        "nb-04::w-step09-basin-archive",
+        "nb-04::sha256:d064e6cdccb2a8952e84602d8dfde2f1ef6a6defb1e5a29c5c8e0b9b0c67abfd",
+        "nb-05::sha256:0032a43f23736768f2067a4acf513f0ae9e818d063400d21dbfc28dfa662d0cb",
+        "nb-05::plan-step10-authority-cells",
+        "nb-06::w-attest-origin",
+        "nb-06::w-trust-lifecycle",
+        "nb-06::w-phase4c-replication",
+        "nb-06::w-review-phase4c",
+        "nb-08::sha256:6b1ebaef4f7213591da025b25cb49e3d78b46e683f1bb9cc30d6feb83a47faca",
+        "nb-08::sha256:51d11568d77f1575dc0b18ca654cae0d1e2f70549461df9ce5505efa7c6b42ed"
+      ],
+      "agreed_semantic": [
+        "nb-04::w-step09-basin-archive",
+        "nb-04::sha256:d064e6cdccb2a8952e84602d8dfde2f1ef6a6defb1e5a29c5c8e0b9b0c67abfd",
+        "nb-05::sha256:0032a43f23736768f2067a4acf513f0ae9e818d063400d21dbfc28dfa662d0cb",
+        "nb-05::plan-step10-authority-cells",
+        "nb-06::w-attest-origin",
+        "nb-06::w-trust-lifecycle",
+        "nb-06::w-phase4c-replication",
+        "nb-06::w-review-phase4c",
+        "nb-08::sha256:6b1ebaef4f7213591da025b25cb49e3d78b46e683f1bb9cc30d6feb83a47faca",
+        "nb-08::sha256:51d11568d77f1575dc0b18ca654cae0d1e2f70549461df9ce5505efa7c6b42ed"
+      ],
+      "disputed": [],
+      "misses": [
+        {
+          "miss_key": "nb-04::w-step09-basin-archive",
+          "query_id": "nb-04",
+          "expected_record": "w-step09-basin-archive",
+          "retrieved_ids": [
+            "plan-step09-basin-archive"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-04::sha256:d064e6cdccb2a8952e84602d8dfde2f1ef6a6defb1e5a29c5c8e0b9b0c67abfd",
+          "query_id": "nb-04",
+          "expected_record": "sha256:d064e6cdccb2a8952e84602d8dfde2f1ef6a6defb1e5a29c5c8e0b9b0c67abfd",
+          "retrieved_ids": [
+            "plan-step09-basin-archive"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-05::sha256:0032a43f23736768f2067a4acf513f0ae9e818d063400d21dbfc28dfa662d0cb",
+          "query_id": "nb-05",
+          "expected_record": "sha256:0032a43f23736768f2067a4acf513f0ae9e818d063400d21dbfc28dfa662d0cb",
+          "retrieved_ids": [
+            "w-step10-authority-cells"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-05::plan-step10-authority-cells",
+          "query_id": "nb-05",
+          "expected_record": "plan-step10-authority-cells",
+          "retrieved_ids": [
+            "w-step10-authority-cells"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-06::w-attest-origin",
+          "query_id": "nb-06",
+          "expected_record": "w-attest-origin",
+          "retrieved_ids": [
+            "plan-node-trust"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-06::w-trust-lifecycle",
+          "query_id": "nb-06",
+          "expected_record": "w-trust-lifecycle",
+          "retrieved_ids": [
+            "plan-node-trust"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-06::w-phase4c-replication",
+          "query_id": "nb-06",
+          "expected_record": "w-phase4c-replication",
+          "retrieved_ids": [
+            "plan-node-trust"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-06::w-review-phase4c",
+          "query_id": "nb-06",
+          "expected_record": "w-review-phase4c",
+          "retrieved_ids": [
+            "plan-node-trust"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-08::sha256:6b1ebaef4f7213591da025b25cb49e3d78b46e683f1bb9cc30d6feb83a47faca",
+          "query_id": "nb-08",
+          "expected_record": "sha256:6b1ebaef4f7213591da025b25cb49e3d78b46e683f1bb9cc30d6feb83a47faca",
+          "retrieved_ids": [
+            "plan-2026-08-12-log-loss"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "nb-08::sha256:51d11568d77f1575dc0b18ca654cae0d1e2f70549461df9ce5505efa7c6b42ed",
+          "query_id": "nb-08",
+          "expected_record": "sha256:51d11568d77f1575dc0b18ca654cae0d1e2f70549461df9ce5505efa7c6b42ed",
+          "retrieved_ids": [
+            "plan-2026-08-12-log-loss"
+          ],
+          "plan": [
+            "q0-anchor_lookup:typed_sql:b25",
+            "q1-neighborhood:traversal:b25"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": {
+                "no_typed_relation": true
+              }
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": {
+                "shortest_path": null,
+                "explored_capped": false
+              }
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": "query has no text terms"
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        }
+      ]
+    },
+    "lexical": {
+      "n": 8,
+      "insufficient_n": false,
+      "labels_total": 12,
+      "labels_hit": 7,
+      "micro_recall": 0.5833333333333334,
+      "sub_bar": true,
+      "counted_recall": 0.75,
+      "counted_one_label_flip": 0.8333333333333334,
+      "counted_sub_bar": false,
+      "survives_one_label_flip": false,
+      "semantic_candidates": [
+        "lx-03::plan-roadmap",
+        "lx-03::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+        "lx-05::w-7c-ghost-invariant",
+        "lx-06::w-5b-credential-broker",
+        "lx-07::sha256:5ac34c59cf3ee71402e934052c08c218742daab8584b292fb0f9dbe93e6842aa"
+      ],
+      "agreed_semantic": [
+        "lx-03::plan-roadmap",
+        "lx-03::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+        "lx-07::sha256:5ac34c59cf3ee71402e934052c08c218742daab8584b292fb0f9dbe93e6842aa"
+      ],
+      "disputed": [
+        "lx-05::w-7c-ghost-invariant",
+        "lx-06::w-5b-credential-broker"
+      ],
+      "misses": [
+        {
+          "miss_key": "lx-03::plan-roadmap",
+          "query_id": "lx-03",
+          "expected_record": "plan-roadmap",
+          "retrieved_ids": [],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "lx-03::sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "query_id": "lx-03",
+          "expected_record": "sha256:4fbd05bcb34c77110d828d1956e484a975dd47dfbf46ba6e4cd3c90c62f9204c",
+          "retrieved_ids": [],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "lx-05::w-7c-ghost-invariant",
+          "query_id": "lx-05",
+          "expected_record": "w-7c-ghost-invariant",
+          "retrieved_ids": [
+            "plan-step07-wake-pull"
+          ],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "lx-06::w-5b-credential-broker",
+          "query_id": "lx-06",
+          "expected_record": "w-5b-credential-broker",
+          "retrieved_ids": [
+            "plan-step05-incarnation"
+          ],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        },
+        {
+          "miss_key": "lx-07::sha256:5ac34c59cf3ee71402e934052c08c218742daab8584b292fb0f9dbe93e6842aa",
+          "query_id": "lx-07",
+          "expected_record": "sha256:5ac34c59cf3ee71402e934052c08c218742daab8584b292fb0f9dbe93e6842aa",
+          "retrieved_ids": [],
+          "plan": [
+            "q0-lexical:fts:b50"
+          ],
+          "skipped_classes": [],
+          "frontier_reasons": [],
+          "per_backend_unreachability": [
+            {
+              "backend": "typed_sql",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "traversal",
+              "reachable": "no",
+              "witness": "no bound anchor"
+            },
+            {
+              "backend": "fts",
+              "reachable": "no",
+              "witness": {
+                "tsquery_matches_record": false
+              }
+            }
+          ],
+          "machine_cause": "semantic_candidate"
+        }
+      ]
+    }
+  },
+  "observation_ids": [
+    "sha256:480d331202b61ce6843d0750bc56a5f5124cebc5d7dd55d4e7b237daa8f29636",
+    "sha256:760a1f36bbdf7133567ee7a8c8db8f6072c0a524b213ed57883fe1dcb370eb4d",
+    "sha256:392f8167b11f46c3d97e49bdc550c919a5f3efc08578419991a0a591baa77912",
+    "sha256:94f040ab6eb5d5577fc1182ab6d1a602981807ade6e8367ba32ce5394beae810",
+    "sha256:ecc21ed1635145344cca69629386108dc5e1622e63d65edf6bc8231076843bb3",
+    "sha256:e060ca1a94b60057de33eae08c612a93111144cdeb95563d778e15302acd2a6f"
+  ]
+}
