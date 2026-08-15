@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Provision THIS machine as a Kawa node up to the readiness gate.
 #
-# Codifies README "Joining an existing deployment (replica / participant node)"
+# Codifies README "Joining an existing Basin (replica / participant node)"
 # steps 1-3 (repo+venv, local kawa DB, node identity bootstrap) and the readiness
 # check. It STOPS at the security plane: trust enrollment and replication wiring
 # (steps 4-5) are operator acts and are only PRINTED, never performed unattended.
 #
-# Idempotent: safe to re-run. Provisioning is host-bound — run it ON the node
-# that is joining. There is no remote "make node X a participant" switch.
+# A Basin is a set of Kawa Nodes sharing a continuity/discovery domain (spec §12).
+# Idempotent: safe to re-run. Joining is host-bound — run it ON the node that is
+# joining the Basin. There is no remote "make node X a participant" switch.
 #
 # Lesson baked in (2026-08-15): a node is a participant ONLY if the readiness
 # check below succeeds on the node itself. PostgreSQL `sub_<node>_from_<peer>`

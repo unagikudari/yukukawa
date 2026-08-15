@@ -221,13 +221,15 @@ The DB-backed tests **skip** without a database; a genuine boot check requires t
 > read only `KAWA_TEST_DSN_A` (default `dbname=kawa_test_a`) and ignore `KAWA_DSN` — the runtime
 > DSN cannot select the fixture target even by accident.
 
-### Joining an existing deployment (replica / participant node)
+### Joining an existing Basin (replica / participant node)
 
-The Quickstart above stands up a **fresh, standalone** Kawa. Adding a machine to an
-**already-running** Kawa deployment — a replica that pulls the canonical event log and
-whose sessions open with the current-position brief — is a different, **host-bound,
-per-node** procedure. There is no remote "make node X a participant" switch: a node
-becomes a participant only by being provisioned on that node.
+A **Basin** is a set of Kawa Nodes sharing a continuity/discovery domain
+([spec §12](docs/specification-v0.5.md)) — Basin membership does **not** imply identical
+state, identical authority, or equal data access. The Quickstart above stands up a **fresh,
+standalone** node; adding a machine to an **already-running Basin** — a replica that pulls the
+canonical event log and whose sessions open with the current-position brief — is a different,
+**host-bound, per-node** procedure. There is no remote "make node X a participant" switch: a
+node joins the Basin only by being provisioned on that node.
 
 A participant node needs **all** of:
 
