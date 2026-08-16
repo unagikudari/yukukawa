@@ -2,6 +2,10 @@
 
 **Pre-alpha architecture and dogfood development. Not production-ready.**
 
+> **Agents are expendable. The mission is not.**
+
+Kawa preserves intent, authority, evidence, and work across machines, models, runtimes, and failures. "Expendable" is a statement about the architecture, not about people: Agents, Nodes, runtimes, and coordinators are replaceable *participants*, while human accountability and authority stay attributable in the record.
+
 > **Change the agent. Keep the work.**
 
 Kawa lets Humans and AI Agents continue shared work without depending on one conversation, one model, one runtime, or one machine.
@@ -102,6 +106,10 @@ Result / Receipt / Evidence
 Authentication is not authorization. A valid Agent identity does not make an Agent correct, benign, or entitled to act.
 
 ## Work-driven Agent runtime
+
+> **Leaders die. The mission survives.**
+
+No supervisor identity owns Project state. Coordination is a role over shared state, not ownership of the mission: if the coordinating Agent, its runtime, or its Node disappears, an authorized successor pulls the same Plans, Work, evidence, and authority records and continues — the coordinator is replaceable too.
 
 The current execution direction is:
 
