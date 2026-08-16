@@ -249,6 +249,32 @@ def test_plan_revisions_dedup_to_one_domain_ref(conn, k):  # type: ignore[no-unt
     assert plan_refs == ["plan-d"]                          # nearest revision only
 
 
+def test_vector_scope_filters_restricted_neighbors(conn, k):  # type: ignore[no-untyped-def]
+    """#146 F3: the similarity scan enforces viewer scope in SQL — a restricted event
+    with a near-identical embedding never surfaces under default (fleet) grants, and
+    appears once the scope is granted."""
+    k_r = Kawa(conn, identity=IdentityContext.from_local_runtime(
+        node_ref="test", actor_ref="pytest"), default_scope="proj-restricted")
+    anchor = k.record_claim("scope probe")
+    secret = k_r.record_claim("scope secret twin")
+    public = k.record_claim("scope public cousin")
+    conn.commit()
+    emb = FakeEmbedder({
+        "scope probe": NEAR,
+        "scope secret twin": NEAR,          # nearest neighbor — but restricted
+        "scope public cousin": MID,
+    })
+    _index(conn, emb)
+    bundle = retrieve(conn, Intent(about=anchor.event_id))
+    refs = [r.ref for r in _vector_records(bundle)]
+    assert secret.event_id not in refs
+    assert public.event_id in refs
+    granted = retrieve(conn, Intent(about=anchor.event_id),
+                       viewer_scopes=frozenset({"fleet", "proj-restricted"}))
+    grefs = [r.ref for r in _vector_records(granted)]
+    assert secret.event_id in grefs
+
+
 def test_frontier_counts_are_honest(conn, k):  # type: ignore[no-untyped-def]
     k.record_claim("counted")
     k.assert_link("sha256:nowhere-a", "supports", "sha256:nowhere-b")   # no-content kind

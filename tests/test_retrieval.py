@@ -246,18 +246,55 @@ def test_scope_restricted_anchor_does_not_bind(conn, k, k_restricted) -> None:  
 
 
 def test_scope_lexical_withholds_restricted_claims(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """Restricted claims never surface through FTS — and the lexical class reports NO
+    withheld count either (F2: caller-chosen terms + exact counts = a blind existence
+    oracle over restricted propositions)."""
     k.record_claim("alpha finding shared")
     k_restricted.record_claim("alpha finding restricted")
     bundle = retrieve(conn, Intent(text_terms="alpha finding"))
     summaries = [r.summary for rs in bundle.sections.values() for r in rs]
     assert "alpha finding shared" in summaries
     assert "alpha finding restricted" not in summaries
-    assert sum(bundle.scope_withheld.values()) == 1                # stated as a count…
-    restricted_id = None                                           # …and ONLY a count:
-    for rs in bundle.sections.values():
-        for r in rs:
-            assert "restricted" not in r.summary
+    assert bundle.scope_withheld == {}                             # no oracle: not even a count
     assert bundle.viewer_scopes == ("fleet",)
+    granted = retrieve(conn, Intent(text_terms="alpha finding"),
+                       viewer_scopes=frozenset({"fleet", "proj-restricted"}))
+    gsum = [r.summary for rs in granted.sections.values() for r in rs]
+    assert "alpha finding restricted" in gsum
+
+
+def test_scope_mixed_plan_shows_only_in_scope_revision(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """F1: a plan visible through an in-scope event must not leak a restricted later
+    revision's objective — neither via the anchor lookup nor via plan FTS (both read
+    the latest IN-SCOPE objective, never the unscoped projection)."""
+    k.create_plan("plan-mixed", "proj", "public objective alpha")
+    k_restricted.create_plan("plan-mixed", "proj", "secret objective omega")   # later revision
+    bundle = retrieve(conn, Intent(about="plan-mixed"))
+    anchor = bundle.sections["q0-anchor_lookup"][0]
+    assert "public objective alpha" in anchor.summary
+    assert "omega" not in anchor.summary
+    fts = retrieve(conn, Intent(text_terms="objective alpha"))
+    fsum = [r.summary for rs in fts.sections.values() for r in rs]
+    assert any("public objective alpha" in s for s in fsum)
+    fts_secret = retrieve(conn, Intent(text_terms="secret objective omega"))
+    assert all("omega" not in r.summary
+               for rs in fts_secret.sections.values() for r in rs)
+
+
+def test_scope_restricted_link_assertion_between_public_events_withheld(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """F4: an edge asserted in a restricted scope between two PUBLIC events is itself
+    restricted content — not expanded, not in frontiers, counted only."""
+    a = k.record_claim("public claim A")
+    b = k.record_claim("public claim B")
+    k_restricted.assert_link(a.event_id, "supports", b.event_id)
+    bundle = retrieve(conn, Intent(about=b.event_id))
+    refs = {r.ref for rs in bundle.sections.values() for r in rs}
+    assert a.event_id not in refs                                  # edge not traversed
+    assert sum(bundle.scope_withheld.values()) >= 1
+    granted = retrieve(conn, Intent(about=b.event_id),
+                       viewer_scopes=frozenset({"fleet", "proj-restricted"}))
+    grefs = {r.ref for rs in granted.sections.values() for r in rs}
+    assert a.event_id in grefs
 
 
 def test_scope_evidence_and_neighborhood_withhold_without_leaking_refs(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
