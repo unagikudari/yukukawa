@@ -154,9 +154,12 @@ def assemble(proofs: list[tuple[dt.datetime, bool, bool, str | None]],
 def compute(conn, status_file: str = STATUS_FILE) -> dict:
     now = dt.datetime.now(dt.timezone.utc)
     with conn.cursor() as cur:
+        # events.policy_digest is authoritative (ATTEST envelope); the source_revision
+        # regex covers pre-fix events emitted before the column was populated
         cur.execute(
             "SELECT e.recorded_at, eo.value_bool, e.signature IS NOT NULL, "
-            "       substring(eo.source_revision FROM 'policy_digest=(sha256:[0-9a-f]+)') "
+            "       COALESCE(e.policy_digest, "
+            "                substring(eo.source_revision FROM 'policy_digest=(sha256:[0-9a-f]+)')) "
             "FROM event_observation eo JOIN events e ON e.event_id = eo.event_id "
             "WHERE eo.predicate='archive_restore_proof' ORDER BY e.recorded_at")
         proofs = [(r[0], bool(r[1]), bool(r[2]), r[3]) for r in cur.fetchall()]
