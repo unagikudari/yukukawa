@@ -15,6 +15,11 @@ Honest limits (named, not hidden — #129 rev 3 discipline):
 - replica-side evidence (replication_frontier_lag / admission rejects) lives in the
   REPLICA's local log (12B policy, one-way pull) — from this node it arrives only through
   the drill-2 Result, so the drill-2 Work being finished is the gate this checker can see.
+- the propagation gate is presence-of-one-within-bound, exactly the pinned acceptance
+  ("measured end-to-end ONCE, recorded"): a Work already eligible before the supervisor
+  first started surfaces with a large backlog value that is a startup artifact, not an
+  SLA breach, so all-must-pass would fail forever on honest data (review b5d0a8bc F2
+  refuted against #129 R2). Continuous SLA watching is #126 territory, not this gate.
 
 Usage:  KAWA_DSN=dbname=kawa .venv/bin/python scripts/step12_standing.py [--json]
 Exit:   0 = standing (Result may be recorded) · 1 = not yet (gaps listed) · 2 = error
@@ -34,18 +39,25 @@ DRILL2_WORK = "w-step12-drill2-replica-kill"
 STATUS_FILE = os.path.expanduser("~/.kawa/status/supervisor.status")
 
 
-def archive_streak(rows: list[tuple[dt.date, bool, bool, str | None]]) -> tuple[int, list[str]]:
-    """Consecutive OK days ending at the LATEST proof day. rows = (local_date, ok, signed,
-    policy_digest) ascending. A missed day, a false proof, an unsigned proof, or a policy
-    digest differing from the latest run's breaks the streak (a digest change splits the
-    measurement lineage by design — the streak restarts under the new policy)."""
+def archive_streak(rows: list[tuple[dt.date, bool, bool, str | None]],
+                   as_of_date: dt.date) -> tuple[int, list[str]]:
+    """Consecutive OK days ending at the LATEST proof day, ANCHORED to as_of_date: a streak
+    whose latest day is older than yesterday is a dead loop, not standing (review b5d0a8bc
+    F1). rows = (local_date, ok, signed, policy_digest) ascending. A missed day, a false
+    proof, an unsigned proof, a MISSING digest, or a digest differing from the latest run's
+    breaks it (a digest change splits the measurement lineage by design — the streak
+    restarts under the new policy)."""
     gaps: list[str] = []
     if not rows:
         return 0, ["no archive_restore_proof observations in the log"]
     by_day: dict[dt.date, tuple[bool, bool, str | None]] = {}
-    for day, ok, signed, digest in rows:            # latest run of a day wins
+    for day, ok, signed, digest in rows:            # latest run of a day wins (rerun-safe)
         by_day[day] = (ok, signed, digest)
     last_day = max(by_day)
+    age = (as_of_date - last_day).days
+    if age > 1:                                     # today may simply not have run yet
+        gaps.append(f"latest restore-proof is {age} days old ({last_day}) — the archive "
+                    "loop is not running")
     current_digest = by_day[last_day][2]
     streak = 0
     day = last_day
@@ -57,6 +69,9 @@ def archive_streak(rows: list[tuple[dt.date, bool, bool, str | None]]) -> tuple[
         if not signed:
             gaps.append(f"{day}: restore-proof unsigned — does not count toward standing")
             break
+        if not digest:                              # review b5d0a8bc F4: None must not
+            gaps.append(f"{day}: no policy digest in source_revision — lineage unverifiable")
+            break                                   # silently equal another None
         if digest != current_digest:
             gaps.append(f"{day}: policy digest changed ({digest} != {current_digest}) — lineage split")
             break
@@ -65,70 +80,63 @@ def archive_streak(rows: list[tuple[dt.date, bool, bool, str | None]]) -> tuple[
     return streak, gaps
 
 
-def compute(conn, status_file: str = STATUS_FILE) -> dict:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT (e.recorded_at)::date, eo.value_bool, e.signature IS NOT NULL, "
-            "       substring(eo.source_revision FROM 'policy_digest=(sha256:[0-9a-f]+)') "
-            "FROM event_observation eo JOIN events e ON e.event_id = eo.event_id "
-            "WHERE eo.predicate='archive_restore_proof' ORDER BY e.recorded_at")
-        proof_rows = [(r[0], bool(r[1]), bool(r[2]), r[3]) for r in cur.fetchall()]
-        # R1 clock start = the supervisor's first surfacing (the loop began operating)
-        cur.execute(
-            "SELECT min(e.recorded_at), "
-            "       bool_or(eo.value_number <= %s) FILTER (WHERE eo.value_number IS NOT NULL) "
-            "FROM event_observation eo JOIN events e ON e.event_id = eo.event_id "
-            "WHERE eo.predicate='work_surfaced'", (PROPAGATION_BOUND_S,))
-        clock_start, propagation_ok = cur.fetchone()
-        cur.execute("SELECT execution FROM current_work WHERE work_ref=%s", (DRILL2_WORK,))
-        row = cur.fetchone()
-        drill2_execution = row[0] if row else None
+def read_supervisor_status(status_file: str, now: dt.datetime) -> tuple[bool, str | None]:
+    """(fresh, gap) — fresh means ok:true and within the 2x-tick staleness bound."""
+    try:
+        with open(status_file, encoding="utf-8") as f:
+            st = json.load(f)
+        age = (now - dt.datetime.strptime(st["ts"], "%Y-%m-%dT%H:%M:%SZ")
+               .replace(tzinfo=dt.timezone.utc)).total_seconds()
+        if bool(st.get("ok")) and age <= SUPERVISOR_STALE_S:
+            return True, None
+        return False, f"supervisor status stale/not-ok (age {int(age)}s, ok={st.get('ok')})"
+    except (OSError, ValueError, KeyError) as exc:
+        return False, f"supervisor status unreadable: {exc}"
 
+
+def assemble(proofs: list[tuple[dt.datetime, bool, bool, str | None]],
+             surfaced: list[tuple[dt.datetime, float | None]],
+             drill2_execution: str | None,
+             supervisor: tuple[bool, str | None],
+             now: dt.datetime) -> dict:
+    """Pure assembly of the verdict from fetched rows — separately testable end to end.
+    Day bucketing happens HERE via astimezone() (the node's local calendar, i.e. the same
+    clock the systemd timer fires on) — never via a ::date cast whose result depends on
+    the ambient postgres session TimeZone (review b5d0a8bc F3)."""
     gaps: list[str] = []
-    now = dt.datetime.now(dt.timezone.utc)
+    local_today = now.astimezone().date()
 
-    streak, streak_gaps = archive_streak(proof_rows)
+    proof_days = [(ts.astimezone().date(), ok, signed, digest)
+                  for ts, ok, signed, digest in proofs]
+    streak, streak_gaps = archive_streak(proof_days, as_of_date=local_today)
     gaps += streak_gaps
     if streak < REQUIRED_DAYS:
         gaps.append(f"archive restore-proof streak {streak}/{REQUIRED_DAYS} days")
 
+    clock_start = min((ts for ts, _ in surfaced), default=None)
     if clock_start is None:
         days_elapsed = 0
-        gaps.append("no work_surfaced observation — the R1 clock has not started")
         earliest = None
+        gaps.append("no work_surfaced observation — the R1 clock has not started")
     else:
         days_elapsed = (now - clock_start).days
         earliest = (clock_start + dt.timedelta(days=REQUIRED_DAYS)).date()
         if days_elapsed < REQUIRED_DAYS:
             gaps.append(f"R1 clock {days_elapsed}/{REQUIRED_DAYS} days (earliest Result {earliest})")
 
-    if not propagation_ok:
-        gaps.append(f"no work_surfaced measurement within the {PROPAGATION_BOUND_S:.0f}s bound (12C acceptance)")
+    # presence-of-one within bound — the pinned "measured end-to-end once" acceptance;
+    # see the module docstring for why all-must-pass is wrong on honest data
+    if not any(v is not None and v <= PROPAGATION_BOUND_S for _, v in surfaced):
+        gaps.append(f"no work_surfaced measurement within the {PROPAGATION_BOUND_S:.0f}s "
+                    "bound (12C acceptance)")
 
-    supervisor_fresh = False
-    try:
-        with open(status_file, encoding="utf-8") as f:
-            st = json.load(f)
-        age = (now - dt.datetime.strptime(st["ts"], "%Y-%m-%dT%H:%M:%SZ")
-               .replace(tzinfo=dt.timezone.utc)).total_seconds()
-        supervisor_fresh = bool(st.get("ok")) and age <= SUPERVISOR_STALE_S
-        if not supervisor_fresh:
-            gaps.append(f"supervisor status stale/not-ok (age {int(age)}s, ok={st.get('ok')})")
-    except (OSError, ValueError, KeyError) as exc:
-        gaps.append(f"supervisor status unreadable: {exc}")
+    supervisor_fresh, sup_gap = supervisor
+    if sup_gap:
+        gaps.append(sup_gap)
 
     if drill2_execution != "finished":
         gaps.append(f"{DRILL2_WORK} execution={drill2_execution} — replica-side evidence "
                     "(frontier-lag gap + catch-up + F5 numbers) arrives through its Result")
-
-    nrestarts = None
-    try:
-        out = subprocess.run(
-            ["systemctl", "--user", "show", "kawa-supervisor.service", "-p", "NRestarts"],
-            capture_output=True, text=True, timeout=5).stdout.strip()
-        nrestarts = int(out.split("=", 1)[1]) if "=" in out else None
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        pass                                        # informational only, never a gap
 
     return {
         "as_of": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -138,10 +146,39 @@ def compute(conn, status_file: str = STATUS_FILE) -> dict:
         "days_elapsed": days_elapsed,
         "earliest_result_date": str(earliest) if earliest else None,
         "supervisor_fresh": supervisor_fresh,
-        "supervisor_nrestarts": nrestarts,          # informational: restarts are allowed
         "drill2_execution": drill2_execution,
         "gaps": gaps,
     }
+
+
+def compute(conn, status_file: str = STATUS_FILE) -> dict:
+    now = dt.datetime.now(dt.timezone.utc)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT e.recorded_at, eo.value_bool, e.signature IS NOT NULL, "
+            "       substring(eo.source_revision FROM 'policy_digest=(sha256:[0-9a-f]+)') "
+            "FROM event_observation eo JOIN events e ON e.event_id = eo.event_id "
+            "WHERE eo.predicate='archive_restore_proof' ORDER BY e.recorded_at")
+        proofs = [(r[0], bool(r[1]), bool(r[2]), r[3]) for r in cur.fetchall()]
+        cur.execute(
+            "SELECT e.recorded_at, eo.value_number "
+            "FROM event_observation eo JOIN events e ON e.event_id = eo.event_id "
+            "WHERE eo.predicate='work_surfaced'")
+        surfaced = [(r[0], r[1]) for r in cur.fetchall()]
+        cur.execute("SELECT execution FROM current_work WHERE work_ref=%s", (DRILL2_WORK,))
+        row = cur.fetchone()
+        drill2_execution = row[0] if row else None
+
+    report = assemble(proofs, surfaced, drill2_execution,
+                      read_supervisor_status(status_file, now), now)
+    try:                                            # informational only, never a gap
+        out = subprocess.run(
+            ["systemctl", "--user", "show", "kawa-supervisor.service", "-p", "NRestarts"],
+            capture_output=True, text=True, timeout=5).stdout.strip()
+        report["supervisor_nrestarts"] = int(out.split("=", 1)[1]) if "=" in out else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        report["supervisor_nrestarts"] = None
+    return report
 
 
 def main() -> int:
