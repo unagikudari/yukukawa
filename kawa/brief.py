@@ -55,6 +55,11 @@ def bootstrap(conn: psycopg.Connection) -> dict:
             cur.execute("SELECT execution, count(*) FROM current_work WHERE plan_ref=%s "
                         "GROUP BY execution ORDER BY execution", (p["plan_ref"],))
             p["progress"] = {state: n for state, n in cur.fetchall()}
+            # ambiguous-state flag (operator request 2026-08-16, the plan-node-trust case):
+            # a running plan whose every Work is settled has NOTHING in flight — it sat
+            # unnoticed until a human audited it. The brief now names the limbo instead of
+            # leaving "[5 finished]" to read as healthy progress.
+            p["all_settled"] = bool(p["progress"]) and set(p["progress"]) <= set(_SETTLED)
         # the roadmap phase map, if present (plan-roadmap is the convention for the top-level plan)
         cur.execute("SELECT work_ref, execution FROM current_work WHERE plan_ref='plan-roadmap' ORDER BY work_ref")
         roadmap = [{"work_ref": r[0], "execution": r[1]} for r in cur.fetchall()]
@@ -108,6 +113,8 @@ def render(b: dict) -> str:
     for p in b["open_plans"]:
         prog = p.get("progress") or {}
         summary = ", ".join(f"{n} {state}" for state, n in sorted(prog.items())) or "no Work derived yet"
+        if p.get("all_settled"):
+            summary += " — nothing in flight: complete the plan or derive the next Work"
         lines.append(f"  {p['plan_ref']} — {_clip(p['objective'])}  [{summary}]")
     if not b["open_plans"]:
         lines.append("  (none running)")

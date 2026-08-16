@@ -319,6 +319,30 @@ def test_brief_clip_never_cuts_a_token_in_half() -> None:
     assert _clip("nospaceatall" * 20, 30).endswith("…")              # no-whitespace fallback
 
 
+def test_context_bootstrap_flags_a_running_plan_with_everything_settled(conn) -> None:  # type: ignore[no-untyped-def]
+    """The plan-node-trust limbo (operator request 2026-08-16): a running plan whose every
+    Work is finished/retired must be NAMED as having nothing in flight — '[5 finished]'
+    alone reads as healthy progress and sat unnoticed until a human audit. A plan with
+    live Work must NOT carry the flag."""
+    from kawa.brief import bootstrap, render
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("p-settled", "kawa", "settled limbo")
+    k.set_plan_lifecycle("p-settled", "running")
+    k.derive_work("ws1", "p-settled", "implement")
+    k.record_result("ws1", "success", "r-ws1")
+    k.create_plan("p-live", "kawa", "live plan")
+    k.set_plan_lifecycle("p-live", "running")
+    k.derive_work("wl1", "p-live", "implement")
+    b = bootstrap(conn)
+    flags = {p["plan_ref"]: p["all_settled"] for p in b["open_plans"]}
+    assert flags == {"p-settled": True, "p-live": False}
+    text = render(b)
+    settled_line = next(ln for ln in text.splitlines() if "p-settled" in ln)
+    live_line = next(ln for ln in text.splitlines() if "p-live" in ln)
+    assert "nothing in flight" in settled_line
+    assert "nothing in flight" not in live_line
+
+
 def test_context_bootstrap_collapses_settled_roadmap_steps(conn) -> None:  # type: ignore[no-untyped-def]
     """Settled roadmap steps collapse to counts; only the frontier (un-settled steps) gets lines —
     a wall of 'finished' buries the lines that carry information."""
