@@ -192,7 +192,7 @@ def run_tick(conn, *, kawa: Kawa, node_ref: str, state: dict, status_file: str,
             source_revision=(f"tick={tick_no} t_eligible={_iso(eligible_at) if eligible_at else '?'} "
                              f"t_surfaced={_iso(t_surfaced)} policy_digest={policy_dgst}"),
             content_digest="sha256:" + hashlib.sha256(surfaced_tuple.encode()).hexdigest(),
-            fetched_at=_iso(t_surfaced))
+            fetched_at=_iso(t_surfaced), policy_digest=policy_dgst)
         conn.commit()
         status["surfaced_this_tick"].append(
             {"work_ref": w["work_ref"], "propagation_s": delta})

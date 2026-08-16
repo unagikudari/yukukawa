@@ -125,7 +125,8 @@ def run_cycle(conn, *, node_ref: str, actor_ref: str, archive_dir: str,
         kawa.record_observation(
             "archive_restore_proof", value_bool=ok, method="command_exit",
             source_ref=f"file://{os.path.abspath(archive_dir)}",
-            source_revision=rev, content_digest=setdigest, fetched_at=status["ts"])
+            source_revision=rev, content_digest=setdigest, fetched_at=status["ts"],
+            policy_digest=pdg)
         conn.commit()
     except Exception as exc:
         status.update({"ok": False, "error_class": type(exc).__name__,

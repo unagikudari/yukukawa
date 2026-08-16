@@ -121,7 +121,7 @@ def run_cycle(dest, source, *, node_ref: str, actor_ref: str, keys_path: str,
                        content_digest="sha256:" + hashlib.sha256(json.dumps(
                            {"source": src_frontier, "local": after},
                            sort_keys=True).encode()).hexdigest(),
-                       fetched_at=status["ts"])
+                       fetched_at=status["ts"], policy_digest=pdg)
         kawa.record_observation(
             "replication_frontier_lag", value_number=float(sum(lag.values())),
             method="metric_read",

@@ -224,6 +224,24 @@ def test_attested_emit_stamps_provenance(conn, tmp_path) -> None:  # type: ignor
     assert verify_provenance(ch, sig, cred.public_pem()) is True    # cryptographic provenance verifies
 
 
+def test_observation_policy_digest_rides_the_attest_envelope(conn) -> None:  # type: ignore[no-untyped-def]
+    """A policy-bound Observation lands its policy_digest in events.policy_digest (ATTEST:
+    'policy in force'), machine-queryable — not only as prose inside source_revision.
+    Omitting it stays NULL (no fabricated policy binding)."""
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    dig = "sha256:" + "c" * 64
+    ev = k.record_observation("archive_restore_proof", value_bool=True, method="command_exit",
+                              source_ref="file:///tmp/segments", content_digest="sha256:" + "d" * 64,
+                              fetched_at="2026-08-16T00:00:00Z",
+                              source_revision=f"policy_digest={dig}", policy_digest=dig)
+    ev2 = k.record_observation("archive_restore_proof", value_bool=True, method="command_exit")
+    with conn.cursor() as cur:
+        cur.execute("SELECT event_id, policy_digest FROM events WHERE event_id IN (%s, %s)",
+                    (ev.event_id, ev2.event_id))
+        got = dict(cur.fetchall())
+    assert got[ev.event_id] == dig and got[ev2.event_id] is None
+
+
 def test_unattested_emit_has_null_signature(conn) -> None:  # type: ignore[no-untyped-def]
     """An unattested runtime records a NULL signature honestly — never a faked one."""
     k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="node-u", actor_ref="a"))

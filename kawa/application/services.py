@@ -102,14 +102,18 @@ class Kawa:
                            value_time: str | None = None, method: str, occurred_at: str | None = None,
                            subject_ref: str | None = None, source_ref: str | None = None,
                            source_revision: str | None = None, content_digest: str | None = None,
-                           fetched_at: str | None = None) -> Event:
+                           fetched_at: str | None = None,
+                           policy_digest: str | None = None) -> Event:
+        # policy_digest rides the ATTEST envelope (emit §2.2: "policy in force"), so a
+        # policy-bound Observation is machine-queryable via events.policy_digest instead
+        # of only a prose fragment inside source_revision
         return self._emit_reduce(
             ObservationRecorded(predicate=predicate, value_text=value_text, value_number=value_number,
                                 value_bool=value_bool, value_time=value_time,
                                 observation_method_class=method, occurred_at=occurred_at,  # type: ignore[arg-type]
                                 source_ref=source_ref, source_revision=source_revision,
                                 content_digest=content_digest, fetched_at=fetched_at),
-            subject_ref=subject_ref,
+            subject_ref=subject_ref, policy_digest=policy_digest,
         )
 
     def record_claim(self, proposition: str, *, basis_note: str | None = None,
