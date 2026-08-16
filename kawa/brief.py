@@ -86,11 +86,19 @@ def bootstrap(conn: psycopg.Connection) -> dict:
         stalled = [{"plan_ref": r[0], "work_ref": r[1], "work_kind": r[2], "execution": r[3],
                     "dep_satisfied": r[4], "dep_total": r[5]} for r in cur.fetchall()]
         for w in stalled:
-            cur.execute("SELECT dependency_work_ref, dependency_state "
-                        "FROM current_work_dependency "
-                        "WHERE work_ref=%s AND dependency_state <> 'satisfied' "
-                        "ORDER BY dependency_work_ref", (w["work_ref"],))
-            w["waiting_on"] = [{"work_ref": r[0], "state": r[1]} for r in cur.fetchall()]
+            # `resolvable`: dependencies are loose work_ref strings with no existence check
+            # at declaration (replay-robustness by design), so a typo'd ref blocks the
+            # dependent FOREVER while the edge sits at 'pending' — a silent-forever class
+            # verified empirically 2026-08-16. A ghost is only detectable at read time:
+            # no WorkDerived event has ever carried that ref.
+            cur.execute("SELECT d.dependency_work_ref, d.dependency_state, "
+                        "       EXISTS(SELECT 1 FROM event_work ew "
+                        "              WHERE ew.work_ref = d.dependency_work_ref) "
+                        "FROM current_work_dependency d "
+                        "WHERE d.work_ref=%s AND d.dependency_state <> 'satisfied' "
+                        "ORDER BY d.dependency_work_ref", (w["work_ref"],))
+            w["waiting_on"] = [{"work_ref": r[0], "state": r[1], "resolvable": bool(r[2])}
+                               for r in cur.fetchall()]
     return {
         "as_of": last_event["at"] if last_event else None,
         "events": events,
@@ -148,10 +156,22 @@ def render(b: dict) -> str:
                     f"deps {w['dep_satisfied']}/{w['dep_total']})")
             if w["waiting_on"]:
                 # a retired dependency is a DEAD branch (#102: intentional withdrawal, not a
-                # failure) — mark it so the reader replans instead of waiting for evidence
-                line += "  waiting on: " + ", ".join(
-                    f"{d['work_ref']} (retired: dead branch — replan)" if d["state"] == "retired"
-                    else f"{d['work_ref']} ({d['state']})" for d in w["waiting_on"])
+                # failure) — mark it so the reader replans instead of waiting for evidence.
+                # A GHOST dependency (ref never derived) can never satisfy — waiting is not
+                # an option; the edge itself is the defect.
+                def _dep(d: dict) -> str:
+                    if not d["resolvable"]:
+                        # edges are append-only (ON CONFLICT DO NOTHING) — there is no
+                        # re-point/delete; the ONLY domain remedies are deriving the missing
+                        # ref or retiring the dependent (review 5f95fb17 F1: the wording
+                        # must not send an agent hunting for an edit API that doesn't exist)
+                        return (f"{d['work_ref']} (GHOST: no such Work ever derived — "
+                                "the edge can never satisfy; derive that ref, or retire "
+                                "the dependent and replan)")
+                    if d["state"] == "retired":
+                        return f"{d['work_ref']} (retired: dead branch — replan)"
+                    return f"{d['work_ref']} ({d['state']})"
+                line += "  waiting on: " + ", ".join(_dep(d) for d in w["waiting_on"])
             lines.append(line)
     lines += ["", "Actors pass through Kawa. Pull context from the projections; record Results to advance."]
     return "\n".join(lines)

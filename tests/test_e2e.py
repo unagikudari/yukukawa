@@ -295,6 +295,29 @@ def test_context_bootstrap_surfaces_stalled_work_and_its_evidence_gap(conn) -> N
     assert "dep-a (retired: dead branch — replan)" in text2
 
 
+def test_context_bootstrap_names_a_ghost_dependency(conn) -> None:  # type: ignore[no-untyped-def]
+    """Dependencies are loose refs with no existence check at declaration, so a typo'd ref
+    blocks the dependent FOREVER with the edge at 'pending' (verified 2026-08-16). The brief
+    must name the ghost — 'waiting' on a ref that was never derived is not waiting, the edge
+    itself is the defect. A legitimately-pending dependency must NOT carry the marker."""
+    from kawa.brief import bootstrap, render
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("pg", "kawa", "ghost target")
+    k.set_plan_lifecycle("pg", "running")
+    k.derive_work("real-dep", "pg", "implement")
+    k.derive_work("gated-g", "pg", "implement")
+    k.declare_dependency("gated-g", "ghost-typo", "ALL")      # never derived, never will be
+    k.declare_dependency("gated-g", "real-dep", "ALL")        # legitimate pending edge
+    b = bootstrap(conn)
+    waiting = {d["work_ref"]: d for w in b["stalled"] if w["work_ref"] == "gated-g"
+               for d in w["waiting_on"]}
+    assert waiting["ghost-typo"]["resolvable"] is False
+    assert waiting["real-dep"]["resolvable"] is True
+    text = render(b)
+    assert "ghost-typo (GHOST: no such Work ever derived" in text
+    assert "real-dep (pending)" in text and "real-dep (GHOST" not in text
+
+
 def test_brief_vocabulary_covers_every_reducer_execution_state() -> None:
     """Mechanizes review 1d352c3c F1: the stalled section is an explicit whitelist, so a NEW
     execution state added in reducers without a brief-side decision must fail HERE — not
