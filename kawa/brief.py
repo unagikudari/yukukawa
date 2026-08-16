@@ -17,11 +17,26 @@ import psycopg
 
 # execution states that mean "nothing to orient on": the work is done or withdrawn.
 _SETTLED = ("finished", "retired")
+# stalled = an explicit whitelist (review 1d352c3c F1), never NOT IN: a future ACTIVE state
+# must not silently render as "stalled" and send the agent chasing phantom blockers.
+# Mirrors reducers._OWN_EXEC ∪ {'blocked'}; test_e2e asserts the vocabularies stay covered.
+STALLED_STATES = ("blocked", "retryable", "result_recorded", "execution_unknown")
+# the canonical "latest event" order — causal HLC, origin as final tiebreak (§3, same rule
+# as reducers._LATEST_RESULT_SQL). recorded_at is local wall-clock + replica arrival time,
+# so it may disagree across nodes; it is DISPLAYED as the freshness stamp, never sorted on.
+_LATEST_EVENT_ORDER = ("ORDER BY split_part(hlc,'.',1)::bigint DESC, "
+                       "split_part(hlc,'.',2)::bigint DESC, origin_node DESC LIMIT 1")
 OBJECTIVE_CLIP = 110
 
 
 def _clip(text: str, limit: int = OBJECTIVE_CLIP) -> str:
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    """Clip on a whitespace boundary — a blind character cut turns '#122' into '#12' and
+    feeds a phantom ref to the reading agent (review 1d352c3c F4)."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    head, sep, _ = cut.rpartition(" ")
+    return (head if sep and head else cut).rstrip() + "…"
 
 
 def bootstrap(conn: psycopg.Connection) -> dict:
@@ -29,8 +44,7 @@ def bootstrap(conn: psycopg.Connection) -> dict:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM events")
         events = cur.fetchone()[0]
-        cur.execute("SELECT kind, actor_ref, recorded_at FROM events "
-                    "ORDER BY recorded_at DESC LIMIT 1")
+        cur.execute("SELECT kind, actor_ref, recorded_at FROM events " + _LATEST_EVENT_ORDER)
         row = cur.fetchone()
         last_event = ({"kind": row[0], "actor": row[1], "at": str(row[2])[:19]}
                       if row else None)
@@ -56,14 +70,14 @@ def bootstrap(conn: psycopg.Connection) -> dict:
         next_work = [{"plan_ref": r[0], "work_ref": r[1], "work_kind": r[2], "role": r[3],
                       "dispatch": ({"state": r[4], "target": r[5]} if r[4] else None)}
                      for r in cur.fetchall()]
-        # stalled Work: neither ready nor settled (blocked / retryable / result_recorded /
-        # execution_unknown). This is where "nothing is ready" gets its WHY — a brief that
-        # falls silent exactly when evidence is missing points nowhere.
+        # stalled Work: the explicit STALLED_STATES whitelist. This is where "nothing is
+        # ready" gets its WHY — a brief that falls silent exactly when evidence is missing
+        # points nowhere.
         cur.execute(
             "SELECT plan_ref, work_ref, work_kind, execution, "
             "       dependency_satisfied, dependency_total "
-            "FROM current_work WHERE execution NOT IN ('ready','finished','retired') "
-            "ORDER BY work_ref")
+            "FROM current_work WHERE execution = ANY(%s) "
+            "ORDER BY work_ref", (list(STALLED_STATES),))
         stalled = [{"plan_ref": r[0], "work_ref": r[1], "work_kind": r[2], "execution": r[3],
                     "dep_satisfied": r[4], "dep_total": r[5]} for r in cur.fetchall()]
         for w in stalled:
@@ -126,8 +140,11 @@ def render(b: dict) -> str:
             line = (f"  {w['execution']:9s} {w['work_ref']}  ({w['plan_ref']} · {w['work_kind']}, "
                     f"deps {w['dep_satisfied']}/{w['dep_total']})")
             if w["waiting_on"]:
+                # a retired dependency is a DEAD branch (#102: intentional withdrawal, not a
+                # failure) — mark it so the reader replans instead of waiting for evidence
                 line += "  waiting on: " + ", ".join(
-                    f"{d['work_ref']} ({d['state']})" for d in w["waiting_on"])
+                    f"{d['work_ref']} (retired: dead branch — replan)" if d["state"] == "retired"
+                    else f"{d['work_ref']} ({d['state']})" for d in w["waiting_on"])
             lines.append(line)
     lines += ["", "Actors pass through Kawa. Pull context from the projections; record Results to advance."]
     return "\n".join(lines)

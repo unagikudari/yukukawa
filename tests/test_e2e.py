@@ -270,6 +270,35 @@ def test_context_bootstrap_surfaces_stalled_work_and_its_evidence_gap(conn) -> N
     assert [d["work_ref"] for d in stalled["gated"]["waiting_on"]] == ["dep-a"]
     text = render(b)
     assert "Stalled Work" in text and "waiting on: dep-a" in text
+    # a RETIRED dependency is a dead branch (#102) — it must not render like an
+    # actionable pending/failed one (review 1d352c3c F3)
+    k.retire_work("dep-a", "superseded")
+    text2 = render(bootstrap(conn))
+    assert "dep-a (retired: dead branch — replan)" in text2
+
+
+def test_brief_vocabulary_covers_every_reducer_execution_state() -> None:
+    """Mechanizes review 1d352c3c F1: the stalled section is an explicit whitelist, so a NEW
+    execution state added in reducers without a brief-side decision must fail HERE — not
+    silently vanish from (or wrongly appear in) the session-start orientation."""
+    from kawa.brief import STALLED_STATES, _SETTLED
+    from kawa.projections.reducers import _OWN_EXEC
+    emitted = set(_OWN_EXEC.values()) | {"ready", "blocked", "retired"}
+    known = set(STALLED_STATES) | set(_SETTLED) | {"ready"}
+    assert emitted <= known, f"unclassified execution states: {sorted(emitted - known)}"
+
+
+def test_brief_clip_never_cuts_a_token_in_half() -> None:
+    """A blind character cut turns '#122' into '#12' — a phantom ref fed straight into an
+    agent's context (review 1d352c3c F4). The clip must land on a whitespace boundary."""
+    from kawa.brief import _clip
+    text = "vector retrieval, measurement-gated harness for issue #122 and spec section ten"
+    clipped = _clip(text, 60)
+    assert clipped.endswith("…") and len(clipped) <= 60
+    body = clipped[:-1]
+    assert text.startswith(body) and (text[len(body)] == " ")        # boundary = whole tokens only
+    assert _clip("short", 60) == "short"
+    assert _clip("nospaceatall" * 20, 30).endswith("…")              # no-whitespace fallback
 
 
 def test_context_bootstrap_collapses_settled_roadmap_steps(conn) -> None:  # type: ignore[no-untyped-def]
