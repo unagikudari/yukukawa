@@ -24,6 +24,8 @@ import os
 import re
 import subprocess
 
+import psycopg
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOC_ROOT = os.path.join(REPO_ROOT, "docs")
 
@@ -80,7 +82,13 @@ def parse_subject(arg: str | None) -> tuple[str, str | None]:
     kind, sid = m.group(1), m.group(2)
     if kind in ("schema", "package") and sid is not None:
         raise SubjectError(EXIT_MALFORMED, f"subject '{kind}' takes no id")
-    if kind in ("doc", "policy") and not sid:
+    # an EMPTY id is a syntax violation for every kind (review 110ea8d9 F1: 'node:' must be
+    # exit 2 like 'doc:'/'policy:', never an exit-3 query for a node named "")
+    if sid == "":
+        raise SubjectError(EXIT_MALFORMED,
+                           f"empty subject id in {arg!r} — vocabulary: node[:<id>], "
+                           "doc:<relative_path>, policy:<name>, schema, package")
+    if kind in ("doc", "policy") and sid is None:
         raise SubjectError(EXIT_MALFORMED, f"subject '{kind}' requires an id ({kind}:<...>)")
     return kind, sid
 
@@ -186,7 +194,10 @@ def _db_facets(want: set[str]) -> dict:  # type: ignore[type-arg]
     try:
         from kawa.storage.db import connect
         conn = connect()
-    except Exception:
+    # narrow catch (review 69866836 F4): connectivity/config failures only — connect()'s
+    # fail-closed refusal raises RuntimeError by design; a programming error must CRASH,
+    # never masquerade as db_unreachable
+    except (psycopg.Error, OSError, RuntimeError):
         return {f: _unknown("db_unreachable") for f in want}
     try:
         with conn.cursor() as cur:
@@ -206,7 +217,7 @@ def _db_facets(want: set[str]) -> dict:  # type: ignore[type-arg]
                 out["schema_revision"] = _facet({"head": row[0] if row else None,
                                                  "applied": cur.fetchone()[0]},
                                                 "authoritative_source")
-    except Exception:
+    except psycopg.Error:
         for f in want - set(out):
             out[f] = _unknown("db_unreachable")
     finally:
@@ -269,7 +280,7 @@ def _compact_value(name: str, facet: dict) -> str:
         inner = ",".join(f"{k}:{n}" for k, n in sorted(v.items()))
         return f"frontier:{{{inner}}}"
     if name == "logical_time":
-        return f"hlc:{v}"
+        return f"hlc:{v or '—'}"                         # empty log: '—', never 'None' (F5)
     if name == "policy_context":
         inner = ",".join(f"{k}:{d[7:15]}" for k, d in sorted(v.items()))
         dirty = "(dirty)" if facet["basis_kind"] == "worktree_dirty" else ""
@@ -278,7 +289,11 @@ def _compact_value(name: str, facet: dict) -> str:
         return f"schema:{(v['head'] or '—').split('_')[0]}"
     if name == "document_currency":
         dirty = "(dirty)" if facet["basis_kind"] == "worktree_dirty" else ""
-        return f"status:{v['status']}{dirty}"
+        # review 110ea8d9 F3: the Status header is repository CONTENT flowing into the
+        # one-line surface — sanitize (printable only) and bound it so a crafted header
+        # cannot inject delimiters/escapes into what agents parse
+        status = "".join(ch for ch in v["status"] if ch.isprintable())[:60]
+        return f"status:{status!r}{dirty}"
     if name == "package":
         return f"package:{v['version']}(non-system)"
     return f"{name}:?"

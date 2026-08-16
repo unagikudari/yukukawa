@@ -8,10 +8,16 @@ Exit:   0 success · 2 malformed subject · 3 unknown subject id · 4 authority 
 import json
 import sys
 
-from kawa.version_read import SubjectError, exit_code_for, render_compact, version_read
+from kawa.version_read import (EXIT_MALFORMED, SubjectError, exit_code_for, render_compact,
+                               version_read)
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if a != "--json"]
+    # review 110ea8d9 F2: a silently dropped extra argument reads as success on the wrong
+    # question — one subject per invocation, loudly
+    if len(args) > 1:
+        print(f"error: one subject per invocation (got {args})", file=sys.stderr)
+        sys.exit(EXIT_MALFORMED)
     try:
         read = version_read(args[0] if args else None)
     except SubjectError as exc:

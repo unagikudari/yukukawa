@@ -55,6 +55,34 @@ def test_malformed_subject_exits_2_and_names_the_vocabulary() -> None:
         assert e.value.exit_code == vr.EXIT_MALFORMED
 
 
+def test_empty_subject_id_is_malformed_for_every_kind() -> None:
+    """'node:' is a syntax violation (exit 2), never a query for a node named '' (exit 3) —
+    review 110ea8d9 F1: syntax and taxonomy must not leak into each other."""
+    for bad in ("node:", "doc:", "policy:"):
+        with pytest.raises(vr.SubjectError) as e:
+            vr.parse_subject(bad)
+        assert e.value.exit_code == vr.EXIT_MALFORMED, bad
+
+
+def test_cli_rejects_multiple_subjects_loudly() -> None:
+    """review 110ea8d9 F2: a silently dropped second argument reads as success on the
+    wrong question."""
+    import subprocess, sys as _sys
+    out = subprocess.run([_sys.executable, os.path.join(os.path.dirname(__file__), os.pardir,
+                                                        "scripts", "version.py"),
+                          "node", "schema"], capture_output=True, text=True)
+    assert out.returncode == vr.EXIT_MALFORMED and "one subject" in out.stderr
+
+
+def test_compact_status_is_sanitized_and_bounded() -> None:
+    """review 110ea8d9 F3: a doc's Status header is repository content — control chars and
+    unbounded length must not flow into the one-line surface agents parse."""
+    evil = {"status": "Current\x1b[31m normative " + "x" * 200, "path": "docs/e.md"}
+    line = vr._compact_value("document_currency",
+                             {"status": "known", "value": evil, "basis_kind": "git_clean_blob"})
+    assert "\x1b" not in line and len(line) < 90
+
+
 def test_doc_containment_rejects_escape_as_malformed() -> None:
     for bad in ("../CLAUDE.md", "/etc/passwd", "a\\b.md"):
         with pytest.raises(vr.SubjectError) as e:
