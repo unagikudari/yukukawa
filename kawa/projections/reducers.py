@@ -353,7 +353,10 @@ def load_events(conn: psycopg.Connection) -> list[Event]:
         # zero rows, and the later derive resurrects the work as ready (found live in the
         # 2026-08-16 dogfood rebuild: retired w-b resurfaced to the supervisor; plan p2
         # regressed ended->draft). The (origin_node, origin_seq) tail is a determinism
-        # tie-break only — per-origin order is already monotone in recorded_at.
+        # tie-break. Honest limits (#167): recorded_at is clock_timestamp() — a backward
+        # clock step can break per-origin monotonicity — and it is NOT durable (a store
+        # rebuilt from archive/pulls regenerates it in import order). Node-local fix;
+        # the durable/causal coordinate and order-tolerant reducers are #167.
         rows = cur.fetchall()
         for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh,
              ever, sref, sdig, mat) in rows:
