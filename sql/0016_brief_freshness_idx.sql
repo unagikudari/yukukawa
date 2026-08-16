@@ -5,8 +5,10 @@
 -- canonical causal order (reducers._LATEST_RESULT_SQL, §3) is the two numeric hlc
 -- fields with origin_node as the final tiebreak. This expression index matches that
 -- ORDER BY exactly, turning the brief's full-table Seq Scan into an index tail read.
--- recorded_at stays a display value only — local wall-clock + replica arrival time
--- is never a cross-node ordering key.
+-- recorded_at is never a CROSS-NODE ordering key (local wall-clock + replica
+-- arrival time). Since the 2026-08-17 rebuild fix it IS this node's LOCAL replay
+-- coordinate (reducers.load_events orders by it) — node-local application order,
+-- still never shared truth; the durable/causal coordinate question is #167.
 CREATE INDEX IF NOT EXISTS events_hlc_causal_idx ON events (
     (split_part(hlc, '.', 1)::bigint) DESC,
     (split_part(hlc, '.', 2)::bigint) DESC,
