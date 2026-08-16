@@ -333,9 +333,30 @@ def test_context_bootstrap_flags_a_running_plan_with_everything_settled(conn) ->
     k.create_plan("p-live", "kawa", "live plan")
     k.set_plan_lifecycle("p-live", "running")
     k.derive_work("wl1", "p-live", "implement")
+    # boundary matrix (review 7a7a9602 F1): retired-only and mixed ARE the limbo;
+    # empty, ready, and stalled (retryable/blocked) are NOT
+    k.create_plan("p-empty", "kawa", "no work yet")
+    k.set_plan_lifecycle("p-empty", "running")
+    k.create_plan("p-retired", "kawa", "retired only")
+    k.set_plan_lifecycle("p-retired", "running")
+    k.derive_work("wr1", "p-retired", "implement")
+    k.retire_work("wr1", "superseded")
+    k.create_plan("p-mixed", "kawa", "finished plus retired")
+    k.set_plan_lifecycle("p-mixed", "running")
+    k.derive_work("wm1", "p-mixed", "implement")
+    k.record_result("wm1", "success", "r-wm1")
+    k.derive_work("wm2", "p-mixed", "implement")
+    k.retire_work("wm2", "superseded")
+    k.create_plan("p-blocked", "kawa", "stalled work")
+    k.set_plan_lifecycle("p-blocked", "running")
+    k.derive_work("wb-dep", "p-blocked", "implement")
+    k.derive_work("wb-gated", "p-blocked", "implement")
+    k.declare_dependency("wb-gated", "wb-dep", "ALL")
+    k.record_result("wb-dep", "failure", "r-wb-dep")     # retryable + blocked, zero settled
     b = bootstrap(conn)
     flags = {p["plan_ref"]: p["all_settled"] for p in b["open_plans"]}
-    assert flags == {"p-settled": True, "p-live": False}
+    assert flags == {"p-settled": True, "p-retired": True, "p-mixed": True,
+                     "p-live": False, "p-empty": False, "p-blocked": False}
     text = render(b)
     settled_line = next(ln for ln in text.splitlines() if "p-settled" in ln)
     live_line = next(ln for ln in text.splitlines() if "p-live" in ln)
