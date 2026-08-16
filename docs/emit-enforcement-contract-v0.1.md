@@ -48,7 +48,7 @@ Zen: *In the face of ambiguity, refuse the temptation to guess.* If any obligati
 `event_id` and the event's ordering position are assigned **by Emit**, never supplied by the caller. A caller-chosen id is a caller-chosen collision and a caller-chosen order; both are refused inputs, not honored ones. (Closes #14 ordering; supports #12.)
 
 ### 2.2 ATTEST — provenance is stamped, never accepted
-The trusted identity of the write — `origin_node`, `workload_ref`, and, for a collector, `observer_ref` — is derived by Emit from the **authenticated session**, not read from caller-supplied fields. A caller may state *intent* (what to observe, what to claim); it cannot state *who observed* or *which workload wrote*. There is no field on the wire for a caller to declare trusted identity, and no code path that copies caller bytes into an identity column. (Closes #9.)
+The attested identity of the write — `origin_node`, `workload_ref`, and, for a collector, `observer_ref` — is derived by Emit from the **authenticated session**, not read from caller-supplied fields. A caller may state *intent* (what to observe, what to claim); it cannot state *who observed* or *which workload wrote*. There is no field on the wire for a caller to declare attested identity, and no code path that copies caller bytes into an identity column. (Closes #9.)
 
 > **The caller requests. The write path attests.** Provenance is established by execution, never claimed by text — and "execution" means this function ran under that session, not that a string said so.
 

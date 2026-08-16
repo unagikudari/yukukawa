@@ -29,7 +29,7 @@ The ordinary LLM does not construct or interpret the basis.
 
 ## 3. Basis
 
-For each state-dependent action, Kawa derives an internal basis from the Event frontier and trusted context that produced the action opportunity.
+For each state-dependent action, Kawa derives an internal basis from the Event frontier and authority-bearing context that produced the action opportunity.
 
 Conceptually:
 
@@ -63,7 +63,7 @@ The representation is replaceable. The comparison semantics are not.
 
 ## 4. Automatic propagation
 
-Whenever Kawa exposes current state that may later authorize a state-dependent write, Kawa MUST establish an exact trusted association between that continuation and its basis.
+Whenever Kawa exposes current state that may later authorize a state-dependent write, Kawa MUST establish an exact attested association between that continuation and its basis.
 
 This applies to relevant results from:
 
@@ -90,7 +90,7 @@ cas_token
 basis_hash
 ```
 
-If Kawa cannot unambiguously identify the required trusted basis, it returns `needs_selection`, `precondition_failed`, or another semantic outcome rather than guessing.
+If Kawa cannot unambiguously identify the required attested basis, it returns `needs_selection`, `precondition_failed`, or another semantic outcome rather than guessing.
 
 ## 5. Write rule
 
@@ -101,7 +101,7 @@ Before accepting a state-dependent write:
 2. authorize
 3. resolve subject and scope
 4. identify the intended semantic action
-5. recover the matching trusted basis for that exact action/work context
+5. recover the matching attested basis for that exact action/work context
 6. compute current basis
 7. compare applicability
 8. accept or return semantic conflict
@@ -155,7 +155,7 @@ A continuation/basis issued for Plan A MUST NOT be accepted for a Plan B revisio
 
 ## 7. Work binding
 
-`kawa.work.next` is the natural place to establish a trusted execution basis.
+`kawa.work.next` is the natural place to establish an attested execution basis.
 
 Internal Work coordination may bind:
 

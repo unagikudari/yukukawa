@@ -130,14 +130,14 @@ Dual ingestion is permitted only for naturally repeatable observation paths, suc
 ```text
 collector
   ├─ Broker observation path
-  └─ Kawa trusted Adapter -> observation.recorded
+  └─ Kawa attested Adapter -> observation.recorded
 ```
 
 Rules:
 
 - Broker and Kawa may both receive the same observation during validation.
 - The collector execution occurs once where possible; fan-out happens after collection.
-- Kawa provenance is established by the trusted Kawa Adapter, not copied from caller text.
+- Kawa provenance is established by the attested Kawa Adapter, not copied from caller text.
 - Dual observation does not mean dual decision authority.
 
 ## 9. Write-authority cutover — one family

@@ -114,9 +114,9 @@ This allows tools to change without changing Kawa semantics.
 
 Collector identity is a Workload Identity.
 
-Trusted infrastructure attaches the authoritative `observer_ref`.
+Attested infrastructure attaches the authoritative `observer_ref`.
 
-The collector MUST NOT self-assert arbitrary trusted identity.
+The collector MUST NOT self-assert arbitrary attested identity.
 
 Examples:
 

@@ -15,6 +15,8 @@ specification-v0.5.md
 
 `specification-v0.5.md` is the current consolidated architecture specification (epistemic and runtime refoundation: Event / Observation / Claim / Plan nucleus; no Kawa-owned Fact or Current Understanding; Situational Awareness belongs to observers). Detailed contracts below remain normative where they refine v0.5 without contradicting it; the epistemic nucleus is realized by `epistemic-claim-model-v0.2.md` (#97); `reducer-projection-contract-v0.2.md` and the FROZEN `consistency-and-authority-v0.1.md` still carry pre-v0.5 `Fact` wording and MUST be read through v0.5 §2 — their revision rides the projection-contract work (roadmap step 4) and the authority work (step 10) respectively.
 
+The same read-through rule applies to residual pre-v0.5 `Fact` wording in `core-logical-schema-v0.3.md`, `event-taxonomy-v0.2.md`, `mcp-contract-v0.2.md`, `llm-write-input-minimization-v0.1.md`, and `prototype-vertical-slice-v0.1.md`: read `Fact` as derived Claim standing / observer-side interpretation (v0.5 §2), never as a Kawa-owned entity; each doc's wording is corrected at its next planned revision rather than by ad-hoc rewrites. Trust-vocabulary note (2026-08-16 normalization): current docs say *attested* (infrastructure-established identity/execution), *authority-bearing* (context that can resolve scope/authorization), *authenticated* (proven origin), or *unverified* (caller-supplied content) — the words `trusted`/`untrusted` remain only where node-trust standing itself is the subject (TrustRegistry enrollment, the `distrusted` node lifecycle state) and in superseded/FROZEN documents.
+
 ## Current normative candidates
 
 ```text

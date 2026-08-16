@@ -90,7 +90,7 @@ Kawa requires:
 
 > Identity is attached, never declared.
 
-Trusted Node/Workload identity must be attached by the authenticated runtime uniformly before Domain semantics are processed.
+Attested Node/Workload identity must be attached by the authenticated runtime uniformly before Domain semantics are processed.
 
 ### 3.5 Existing implementation contains compatibility/dead-path burden
 

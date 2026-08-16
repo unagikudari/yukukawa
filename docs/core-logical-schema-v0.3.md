@@ -86,7 +86,7 @@ Project:
   state: active | ended
 ```
 
-Project scope may be automatically attached only when trusted context resolves exactly one authorized Project.
+Project scope may be automatically attached only when authority-bearing context resolves exactly one authorized Project.
 
 Omission never means global scope.
 
@@ -160,7 +160,7 @@ Observation:
   value: typed value
   unit: string | omitted
   observed_at: timestamp
-  observer: trusted workload ref
+  observer: infrastructure-attested workload ref
   observation_method: string
 ```
 
@@ -169,12 +169,12 @@ Meanings:
 ```text
 subject            = what was observed
 observer           = authenticated Workload that observed it
-observation_method = trusted deterministic tool/method that produced it
+observation_method = attested deterministic tool/method that produced it
 predicate          = property observed
 value              = observed value
 ```
 
-`observer` and `observation_method` are attached by trusted execution context, not free-form Agent claims.
+`observer` and `observation_method` are attached by attested execution context, not free-form Agent claims.
 
 An LLM inference is not an Observation merely because it refers to observed evidence.
 
@@ -202,7 +202,7 @@ A Claim is not automatically Fact.
 
 A later change of view is another `claim.recorded` Event linked with `corrects` or `supersedes`; the original Event remains immutable.
 
-Trusted claimant identity is attached by infrastructure. The Agent does not choose `claimant` as authority.
+Claimant identity is infrastructure-attested. The Agent does not choose `claimant` as authority.
 
 See `epistemic-claim-model-v0.1.md`.
 
@@ -322,9 +322,9 @@ The Event identity is sufficient unless Results later demonstrate an independent
 
 ## 16. Caller input minimization
 
-Public writes require only semantic values that cannot be determined safely from trusted context.
+Public writes require only semantic values that cannot be determined safely from authority-bearing context.
 
-Trusted infrastructure SHOULD automatically attach values such as:
+Attested infrastructure SHOULD automatically attach values such as:
 
 ```text
 new opaque entity refs
@@ -335,7 +335,7 @@ Project scope when uniquely resolved
 recorded time
 schema version
 causation/correlation when known
-observation method from trusted collector path
+observation method from the attested collector path
 stale-write basis
 approval binding metadata
 semantic links implied by current Work
@@ -386,8 +386,8 @@ Kawa does not duplicate mature external systems when references are sufficient.
 
 ```text
 Git repository/commit/PR → Git remains artifact SoT
-Ansible/scanner output   → trusted collector establishes Observation
-external side effect     → trusted Adapter performs execution
+Ansible/scanner output   → attested collector establishes Observation
+external side effect     → attested Adapter performs execution
 ```
 
 Kawa records organizational meaning and links to external authoritative artifacts/results.

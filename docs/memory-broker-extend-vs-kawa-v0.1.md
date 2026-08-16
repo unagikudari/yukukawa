@@ -148,7 +148,7 @@ Either candidate loses immediately if it requires any of the following:
 
 ```text
 unrebuildable authoritative current Domain state
-caller-authored trusted provenance/identity
+caller-authored provenance/identity treated as attested
 scope omission that widens visibility
 silent stale overwrite of current Plan meaning
 external side effects during Event replay

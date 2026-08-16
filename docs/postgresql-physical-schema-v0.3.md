@@ -80,7 +80,7 @@ Naming map to the #25 canonical continuity spine: `prev_hash` = `origin_prev_has
 
 `subject_ref` means exactly the thing the Event is about.
 
-Trusted identity fields are attached by authenticated infrastructure, not caller-declared provenance.
+Attested identity fields are attached by authenticated infrastructure, not caller-declared provenance.
 
 ## 4. Actor and observer are distinct
 
@@ -234,13 +234,13 @@ Meanings:
 ```text
 subject_ref          = what was observed
 observer_ref         = authenticated workload performing observation
-observation_method   = trusted deterministic method/tool producing value
+observation_method   = attested deterministic method/tool producing value
 predicate            = property observed
 value_*              = tool output after deterministic normalization
 occurred_at          = time of observation
 ```
 
-`observation_method` is trusted provenance established by execution, not a caller description.
+`observation_method` is attested provenance established by execution, not a caller description.
 
 An LLM inference MUST NOT be stored here merely because it concerns the same predicate/value shape. Inference belongs in `event_claim`.
 

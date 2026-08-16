@@ -145,7 +145,7 @@ Examples:
 
 A Claim need not be true.
 
-Self-reported confidence is assertion content, not trusted authority.
+Self-reported confidence is assertion content, not authority.
 
 ### 2.4 Reason is a Claim in relation to a Plan
 
@@ -308,7 +308,7 @@ Decide
   ← reason_for Claim(s)
 
 Act
-  Work → trusted/authorized execution
+  Work → attested/authorized execution
 
 Observe again
   new Observation(s)
@@ -443,7 +443,7 @@ Wake messages are hints that relevant Work may now exist. Lost, duplicated, dela
 
 > **Wake the runtime, not the model context.**
 
-Kawa SHOULD push wake hints, not arbitrary untrusted record text directly into an LLM instruction channel.
+Kawa SHOULD push wake hints, not arbitrary unverified record text directly into an LLM instruction channel.
 
 Poll-only participants remain valid; they may discover Work through periodic `kawa.work.next`.
 
@@ -849,14 +849,14 @@ The process may possess the ephemeral private proof key. It MUST NOT possess iss
 
 ### 15.1 Identity/Credential Broker
 
-Short-lived Workload/Process credentials MUST be issued by a trusted Identity/Credential Broker or equivalent trusted issuer, not self-issued by the Agent.
+Short-lived Workload/Process credentials MUST be issued by an attested Identity/Credential Broker or equivalent attested issuer, not self-issued by the Agent.
 
 Conceptual flow:
 
 ```text
 process starts
   ↓
-trusted Runtime/Supervisor observes/binds Process Incarnation
+attested Runtime/Supervisor observes/binds Process Incarnation
   ↓
 Identity/Credential Broker
   ├─ verifies Node / Runtime / Workload context
@@ -889,13 +889,13 @@ Secret custody and identity credential issuance are distinct responsibilities ev
 Identity/Credential Broker
   → identity / workload credential issuance
 
-Secret Broker / trusted Adapter
+Secret Broker / attested Adapter
   → custody and mediated use of external secrets
 ```
 
 Raw long-lived GitHub tokens, cloud secrets, private issuer keys, and similar credentials SHOULD NOT be disclosed to Agents.
 
-Trusted Adapters/Secret Brokers perform authorized operations using protected credentials internally where feasible.
+Attested Adapters/Secret Brokers perform authorized operations using protected credentials internally where feasible.
 
 ### 15.3 Production credential profile
 
@@ -918,7 +918,7 @@ A copied JWT string alone is insufficient production Workload authentication.
 
 ## 16. MCP Initialization as Participant Introduction
 
-MCP initialization/connection establishment SHOULD exchange enough information to construct trusted participant context without requiring the LLM to repeat it in prompts.
+MCP initialization/connection establishment SHOULD exchange enough information to construct attested participant context without requiring the LLM to repeat it in prompts.
 
 Conceptually exchange four distinct categories:
 
@@ -990,7 +990,7 @@ Conceptually:
 ```text
 Agent: "I know how to use Git."
 
-Kawa trusted context:
+Kawa authority-bearing context:
   git.read = allowed
   git.commit = allowed
   git.push = denied
@@ -1115,7 +1115,7 @@ Kawa separates:
 ```text
 Intent
 → Authorization
-→ Trusted Execution
+→ Attested Execution
 → Observation / execution receipt
 ```
 
@@ -1123,7 +1123,7 @@ An Agent saying "I executed X" is a Claim, not proof that X occurred.
 
 Event replay MUST NEVER invoke an external side effect.
 
-Trusted execution adapters require idempotency/reconciliation sufficient for:
+Attested execution adapters require idempotency/reconciliation sufficient for:
 
 ```text
 timeout
@@ -1209,7 +1209,7 @@ Recommended dependency order:
 2. converge Event / Observation / Claim / Plan + typed relation model
 3. SQL-first unified retrieval and retrieval provenance
 4. Plan/Work DAG + coordination Events + JIT Work rendering
-5. Workload/Runtime/Process Incarnation identity and trusted credential issuance
+5. Workload/Runtime/Process Incarnation identity and attested credential issuance
 6. MCP participant initialization / capability reconciliation / presence
 7. Wake push + authoritative pull runtime loop
 8. real Node identity + Node Incarnation + 2-node replication

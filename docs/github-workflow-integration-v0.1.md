@@ -23,7 +23,7 @@ Kawa semantic workflow
   Approval
   Result
 
-Trusted Git Adapter
+Attested Git Adapter
   maps authorized semantic intent to GitHub operations
   maps verified GitHub facts back to Kawa Observations / Results
 
@@ -82,7 +82,7 @@ GitHub state MUST NOT silently redefine these meanings.
 
 ## 5. Trigger direction: GitHub to Kawa
 
-GitHub-originated changes SHOULD enter Kawa through authenticated webhook or equivalent trusted event delivery.
+GitHub-originated changes SHOULD enter Kawa through authenticated webhook or equivalent attested event delivery.
 
 Conceptually:
 
@@ -106,7 +106,7 @@ workflow completed
 merge completed
 ```
 
-The Adapter MUST attach trusted provenance from the verified execution path. An LLM MUST NOT self-assert that a GitHub event occurred.
+The Adapter MUST attach attested provenance from the verified execution path. An LLM MUST NOT self-assert that a GitHub event occurred.
 
 ## 6. Trigger direction: Kawa to GitHub
 
@@ -117,7 +117,7 @@ Conceptually:
 ```text
 Kawa semantic intent
 → authorization / approval if required
-→ trusted Git Adapter
+→ attested Git Adapter
 → GitHub API / workflow dispatch
 → GitHub result
 → deterministic observation/result back into Kawa
@@ -208,7 +208,7 @@ predicate          = git.pull_request.state
 value_text         = open
 ```
 
-The concrete observation method value is attached by the trusted Adapter, not provided by LLM text.
+The concrete observation method value is attached by the attested Adapter, not provided by LLM text.
 
 See `docs/deterministic-observation-ingestion-v0.1.md`.
 
@@ -247,7 +247,7 @@ Event replay MUST NOT recreate repositories, reopen pull requests, re-run workfl
 
 ## 13. Security boundary
 
-The Git Adapter is a trusted mediator.
+The Git Adapter is an attested mediator.
 
 It MUST enforce:
 
@@ -275,7 +275,7 @@ Does this express organizational meaning?
   yes -> Kawa should normally own it
 
 Is information crossing the boundary?
-  yes -> use a trusted Adapter and explicit references/Observations
+  yes -> use an attested Adapter and explicit references/Observations
 
 Would implementing this in Kawa duplicate GitHub?
   yes -> do not implement it in Kawa
@@ -289,4 +289,4 @@ GitHub handles Git-native HOW.
 The Adapter translates verified facts and authorized intent.
 ```
 
-> **Semantic workflow in Kawa. Repository workflow in GitHub. One trusted boundary between them.**
+> **Semantic workflow in Kawa. Repository workflow in GitHub. One attested boundary between them.**

@@ -21,8 +21,8 @@ Human Administrator
 Kawa Trust Authority
         ↓ registers Node public key
 TPM-backed Node Identity
-        ↓ hosts trusted runtime
-Trusted Runtime
+        ↓ hosts attested runtime
+Attested Runtime
         ↓ creates/binds Workload key
 Workload Identity
         ↓ receives short-lived PoP-bound token
@@ -93,7 +93,7 @@ Node identity answers:
 
 > Which enrolled machine is participating?
 
-Node identity MUST be established from the registered Node key/credential by trusted infrastructure.
+Node identity MUST be established from the registered Node key/credential by attested infrastructure.
 
 An Agent MUST NOT supply authoritative `origin_node`.
 
@@ -105,9 +105,9 @@ Node-key replacement requires an authenticated rotation procedure or re-enrollme
 
 Workload identity answers:
 
-> Which trusted runtime process/service is making this request?
+> Which attested runtime process/service is making this request?
 
-The trusted runtime derives Workload identity from deployment policy and launches the Workload under that identity.
+The attested runtime derives Workload identity from deployment policy and launches the Workload under that identity.
 
 For each Workload credential context, the runtime establishes a Workload proof key inaccessible to ordinary LLM text/tool arguments.
 
@@ -123,7 +123,7 @@ credential lifetime
 proof public key thumbprint
 ```
 
-The LLM cannot choose its own trusted Workload identity or proof key.
+The LLM cannot choose its own attested Workload identity or proof key.
 
 ## 8. Access-token profile
 
@@ -294,7 +294,7 @@ issue/register fresh Node key
 re-establish Workload proof keys and tokens
 ```
 
-Recovery MUST NOT restore trusted identity from conversation text, Domain Events, backup prompts, or self-asserted Agent state.
+Recovery MUST NOT restore attested identity from conversation text, Domain Events, backup prompts, or self-asserted Agent state.
 
 ## 18. Human identity and Approval
 
@@ -306,7 +306,7 @@ Login session possession alone is not Approval.
 
 ## 19. Request-side field minimization
 
-Trusted identity/security fields are not caller options.
+Attested identity/security fields are not caller options.
 
 An LLM-facing request MUST NOT require or accept authoritative values for:
 
@@ -324,7 +324,7 @@ capability bindings
 revocation state
 ```
 
-These are attached/verified by trusted infrastructure.
+These are attached/verified by attested infrastructure.
 
 ## 20. Security-plane storage
 
