@@ -223,7 +223,7 @@ authenticated Workload
 
 An Agent MUST NOT receive provider credentials merely to create a repository.
 
-Provider credentials remain inside trusted infrastructure.
+Provider credentials remain inside attested infrastructure.
 
 Repository creation is an external side effect and therefore follows the Security Model's:
 

@@ -239,7 +239,7 @@ Kawa may hide authentication, revision, lease, secret, and approval mechanics fr
 
 > The LLM sees simple semantics. Kawa enforces precise mechanics.
 
-The model remains an authenticated but untrusted decision-maker.
+The model remains an authenticated principal whose decisions carry no inherent authority.
 
 ## 12. Design target
 

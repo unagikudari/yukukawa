@@ -15,7 +15,7 @@ Kawa MUST complete JWT verification before it evaluates or exposes Wizard guidan
 
 A caller with an invalid, expired, not-yet-valid, incorrectly issued, incorrectly scoped, or otherwise unacceptable JWT receives only a minimal authentication failure.
 
-The Wizard begins only after Kawa has established a trusted principal from the JWT.
+The Wizard begins only after Kawa has established an authenticated principal from the JWT.
 
 ## 2. Processing order
 
@@ -26,7 +26,7 @@ request
 → parse only what is necessary for authentication
 → verify JWT
     invalid → minimal authentication rejection
-    valid   → trusted principal
+    valid   → authenticated principal
 → authorize requested scope/action
 → validate semantic request
 → evaluate current state / policy
@@ -55,7 +55,7 @@ token not revoked when revocation is supported
 
 Kawa MUST NOT treat successful decoding as successful authentication.
 
-A JWT is trusted only after cryptographic and semantic validation.
+A JWT is accepted only after cryptographic and semantic validation.
 
 ## 4. Minimal rejection for invalid JWT
 
@@ -120,11 +120,11 @@ Kawa SHOULD preserve the semantic distinction:
 
 ```text
 401 Unauthorized
-  identity is not trusted
+  identity is not authenticated
   → no Wizard
 
 403 Forbidden
-  identity is trusted, action is not authorized
+  identity is authenticated, action is not authorized
   → limited authorized guidance MAY be returned
 
 409 Conflict
@@ -328,7 +328,7 @@ revoked
 required_claim_missing
 ```
 
-These diagnostic details SHOULD NOT automatically be reflected to an untrusted caller.
+These diagnostic details SHOULD NOT automatically be reflected to an unauthenticated or unauthorized caller.
 
 Operational observability and caller guidance are separate concerns.
 
@@ -381,7 +381,7 @@ request ────>│ JWT verification        │
                 invalid   │   valid
                     │     │     │
                     v     │     v
-              minimal 401 │  trusted principal
+              minimal 401 │  authenticated principal
                           │     │
                           │     v
                           │ authorization

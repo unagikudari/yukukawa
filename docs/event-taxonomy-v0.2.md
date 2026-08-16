@@ -116,7 +116,7 @@ For `observation.recorded`:
 ```text
 subject_ref          = thing observed
 observer_ref         = authenticated observer
-observation_method   = trusted deterministic method/tool
+observation_method   = attested deterministic method/tool
 predicate            = observed property
 value_*              = observed value
 ```
@@ -156,7 +156,7 @@ supersedes -> prior Claim Event
 
 A later change of view is another `claim.recorded` Event linked to the prior Claim. Historical Claims are never edited.
 
-Self-reported rationale or confidence is assertion content, not trusted authority.
+Self-reported rationale or confidence is assertion content, not authority.
 
 ### Review
 

@@ -1,7 +1,7 @@
 # Kawa LLM Write Input Minimization v0.1
 
 Status: Draft, normative
-Scope: Minimize caller-supplied fields for Agent/Skill writes while preserving Event-only SoT, trusted provenance, and deterministic security metadata.
+Scope: Minimize caller-supplied fields for Agent/Skill writes while preserving Event-only SoT, attested provenance, and deterministic security metadata.
 
 ## 1. Core rule
 
@@ -13,7 +13,7 @@ The goal is not merely optional fields. The goal is to remove unnecessary choice
 
 ```text
 Semantic intent from caller
-+ trusted runtime context
++ attested runtime context
 + current Kawa state
 + schema
 + policy
@@ -37,7 +37,7 @@ selected target when multiple targets are valid
 explicit evidence reference when it cannot be inferred
 ```
 
-System-controlled fields include values that are derived from trusted context or protocol state.
+System-controlled fields include values that are derived from attested context or protocol state.
 
 Examples:
 
@@ -53,7 +53,7 @@ correlation_id
 causation_id
 project_ref when uniquely determined by current context
 subject_ref when uniquely determined by current operation/work item
-observation_method for trusted collectors
+observation_method for attested collectors
 approval/security bindings
 revision/concurrency metadata
 ```
@@ -72,26 +72,26 @@ workload_ref
 human_principal_ref
 ```
 
-are attached by trusted infrastructure.
+are attached by attested infrastructure.
 
-A caller-provided identity-like value is at most untrusted content and MUST NOT override authenticated identity.
+A caller-provided identity-like value is at most unverified content and MUST NOT override authenticated identity.
 
 > **Identity is attached, never declared.**
 
 ## 4. Provenance is never free text
 
-Trusted provenance is established by the execution path, not by text supplied by the Agent.
+Attested provenance is established by the execution path, not by text supplied by the Agent.
 
 For deterministic Observation ingestion:
 
 ```text
 observer_ref        <- authenticated workload
-observation_method  <- trusted Collector/Adapter
+observation_method  <- attested Collector/Adapter
 predicate           <- normalized collector mapping
 value               <- deterministic tool output
 ```
 
-The LLM or Skill may request an observation, but it MUST NOT be able to claim that the value came from `ansible.setup`, `scanner.nessus`, `system.hostname`, or another trusted method unless that method actually executed.
+The LLM or Skill may request an observation, but it MUST NOT be able to claim that the value came from `ansible.setup`, `scanner.nessus`, `system.hostname`, or another attested method unless that method actually executed.
 
 > **Provenance is established by execution, never claimed by text.**
 
@@ -125,7 +125,7 @@ Preferred:
 rationale: Fix review finding.
 ```
 
-Kawa fills the rest from trusted context.
+Kawa fills the rest from attested context.
 
 ## 6. Auto-fill only when unambiguous
 
@@ -137,7 +137,7 @@ Auto-fill is allowed only when the value is uniquely determined by:
 authenticated identity
 current Work
 current object context
-trusted Adapter
+attested Adapter
 schema
 policy
 request causality
@@ -161,7 +161,7 @@ This preserves minimal input without introducing hidden inference.
 
 `recorded_at` is always system-managed.
 
-`occurred_at` is system-managed when the event occurred as part of the current trusted execution path.
+`occurred_at` is system-managed when the event occurred as part of the current attested execution path.
 
 The caller supplies an occurrence time only when recording a historical/external occurrence whose time cannot be derived safely.
 
@@ -289,7 +289,7 @@ Every public write field SHOULD be classified as exactly one of:
 2. inferred_context
    Kawa derives it from current semantic context.
 
-3. trusted_metadata
+3. attested_metadata
    Kawa derives it from authenticated/runtime infrastructure.
 ```
 
@@ -330,7 +330,7 @@ Everything else should be derived when possible.
 
 Input minimization is also a security control.
 
-Removing trusted fields from caller control prevents spoofing of:
+Removing attested fields from caller control prevents spoofing of:
 
 ```text
 identity
@@ -339,7 +339,7 @@ node/workload origin
 approval context
 schema version
 causality
-trusted timestamps
+attested timestamps
 ```
 
 The LLM has less authority because it has fewer security-relevant knobs.
@@ -368,7 +368,7 @@ A conforming implementation should pass tests equivalent to:
 
 ```text
 An Agent cannot set its authoritative actor_ref.
-An Agent cannot set observer_ref for a trusted collector.
+An Agent cannot set observer_ref for an attested collector.
 An Agent cannot claim observation_method without executing that method.
 A Plan revision in a unique current Plan context does not require project/plan refs.
 A write in a unique Work context inherits causation automatically.

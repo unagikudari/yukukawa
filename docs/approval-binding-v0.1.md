@@ -110,10 +110,10 @@ authenticate requester
 → confirm target and operation match
 → confirm not revoked
 → confirm not expired
-→ execute through trusted mediator
+→ execute through the attested mediator
 ```
 
-The check occurs immediately before the protected operation or at the closest trusted execution boundary.
+The check occurs immediately before the protected operation or at the closest attested execution boundary.
 
 ## 9. TOCTOU resistance
 
