@@ -59,6 +59,8 @@ def main() -> int:
         print(f"traversal frontier (not expanded): {reasons}")
     if bundle.unresolved_frontier:
         print(f"unresolved links (targets not held): {len(bundle.unresolved_frontier)}")
+    if bundle.orientation:
+        print("orientation: " + "; ".join(bundle.orientation))
     print(f"scope: searched under {', '.join(bundle.viewer_scopes)} (+ unscoped legacy)")
     if bundle.scope_withheld:
         total = sum(bundle.scope_withheld.values())

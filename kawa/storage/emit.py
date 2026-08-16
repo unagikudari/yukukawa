@@ -157,9 +157,9 @@ def _insert_payload(cur: psycopg.Cursor, event: Event) -> None:
     if isinstance(p, PlanCreated):
         cur.execute(
             "INSERT INTO event_plan (event_id, plan_ref, project_ref, objective, rationale, lifecycle, "
-            "scope, constraints, expected_observations) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "scope, constraints, expected_observations, domain) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (eid, p.plan_ref, p.project_ref, p.objective, p.rationale, p.lifecycle,
-             p.scope, p.constraints, p.expected_observations),
+             p.scope, p.constraints, p.expected_observations, p.domain),
         )
     elif isinstance(p, PlanLifecycleChanged):
         cur.execute(
@@ -170,9 +170,10 @@ def _insert_payload(cur: psycopg.Cursor, event: Event) -> None:
     elif isinstance(p, WorkDerived):
         cur.execute(
             "INSERT INTO event_work (event_id, work_ref, plan_ref, work_kind, role_requirement, subject_ref, "
-            "objective, constraints, expected_observations) VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s)",
+            "objective, constraints, expected_observations, domain) "
+            "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s)",
             (eid, p.work_ref, p.plan_ref, p.work_kind, p.role_requirement, p.subject_ref,
-             p.objective, p.constraints, p.expected_observations),
+             p.objective, p.constraints, p.expected_observations, p.domain),
         )
     elif isinstance(p, WorkRetired):
         cur.execute(

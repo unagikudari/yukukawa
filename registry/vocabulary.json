@@ -135,5 +135,32 @@
     "OpenTimestamps",
     "Merkle Mountain Range"
   ],
-  "$comment_mechanism": "mechanism_terms must NOT appear in core_semantic_docs (the standards/provider quarantine promised in #24/#26/#30). They are legitimate in profile/physical/mechanics docs (postgresql-physical-schema, security-plane-profile, event-log-and-replication, memory-broker-*) and in the consolidated specification's replaceable-mechanics sections."
+  "$comment_mechanism": "mechanism_terms must NOT appear in core_semantic_docs (the standards/provider quarantine promised in #24/#26/#30). They are legitimate in profile/physical/mechanics docs (postgresql-physical-schema, security-plane-profile, event-log-and-replication, memory-broker-*) and in the consolidated specification's replaceable-mechanics sections.",
+  "$comment_domains": "#156 Phase A: domain -> governing normative section POINTERS ONLY (doc_path#exact heading text). Zero normative prose lives here — the invariant text lives only in the documents; this is an index over doc authority, not a second normative source (r2-F2). The drift lint validates: every anchor resolves to a section of a CURRENT-authority doc (supersession-matrix check), no duplicate anchors within a domain, and a stale anchor (doc revised so the heading no longer resolves) FAILS the lint until re-pointed. Mapping changes ride normal PR + adversarial review with a stated authority rationale.",
+  "domains": {
+    "event_store": [
+      "docs/event-log-and-replication-v0.1.md#4. The per-node log and the replication frontier",
+      "docs/specification-v0.5.md#4. Event Source of Truth and Projections",
+      "docs/core-logical-schema-v0.3.md#9. Claim"
+    ],
+    "projection": [
+      "docs/specification-v0.5.md#4. Event Source of Truth and Projections"
+    ],
+    "replication": [
+      "docs/event-log-and-replication-v0.1.md#4. The per-node log and the replication frontier",
+      "docs/scoped-replication-and-archive-v0.1.md#3. Scope grants and the offer/retain algebra (9b, REALIZED)"
+    ],
+    "authority": [
+      "docs/authority-cells-v0.1.md#1. Authority is event-sourced",
+      "docs/security-model-v0.1.md#2. Security invariants"
+    ],
+    "retrieval": [
+      "docs/security-model-v0.1.md#2. Security invariants",
+      "docs/scope-resolution-v0.1.md#2. Core rule"
+    ],
+    "identity_credential": [
+      "docs/identity-credential-lifecycle-v0.2.md#1. What is REAL in Phase-0 (this step) — and the exact attacker each stops",
+      "docs/security-model-v0.1.md#2. Security invariants"
+    ]
+  }
 }
