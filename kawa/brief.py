@@ -161,8 +161,13 @@ def render(b: dict) -> str:
                 # an option; the edge itself is the defect.
                 def _dep(d: dict) -> str:
                     if not d["resolvable"]:
+                        # edges are append-only (ON CONFLICT DO NOTHING) — there is no
+                        # re-point/delete; the ONLY domain remedies are deriving the missing
+                        # ref or retiring the dependent (review 5f95fb17 F1: the wording
+                        # must not send an agent hunting for an edit API that doesn't exist)
                         return (f"{d['work_ref']} (GHOST: no such Work ever derived — "
-                                "the edge can never satisfy; fix or retire the dependent)")
+                                "the edge can never satisfy; derive that ref, or retire "
+                                "the dependent and replan)")
                     if d["state"] == "retired":
                         return f"{d['work_ref']} (retired: dead branch — replan)"
                     return f"{d['work_ref']} ({d['state']})"
