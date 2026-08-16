@@ -71,6 +71,7 @@ architecture-review-findings-v0.1.md
 architecture-adversarial-review-v0.2.md
 publication-boundary.md
 document-versioning-and-reading-path-v0.1.md
+user-value-and-onboarding-v0.1.md
 ```
 
 

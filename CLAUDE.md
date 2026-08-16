@@ -24,13 +24,13 @@ brief は open plan・roadmap 位置・**次の actionable Work** を返す。�
 4. 実装 → 実装レビュー (evo-gemini)。**自分が攻撃点として挙げた穴は verdict が green でも塞ぐ** (step 5 の freshness/resolvability が実例)。
 5. merge → kawa に Result 記録 (`bridge.complete_review` / `record_result`) で次 step が unblock。
 
-新 doc は `specification-v0.5.md` §26 と `supersession-matrix-v0.1.md` に index。それで C4 drift が 1 増えるので `registry/drift-baseline.json` に 1 行足して 31 維持 (README は topic 一覧で contract を列挙しない規約)。
+新 doc は `specification-v0.5.md` §26 と `supersession-matrix-v0.1.md` に index。それで C4 drift が 1 増えるので `registry/drift-baseline.json` に 1 行足して green 維持 (README は topic 一覧で contract を列挙しない規約。2026-08-16 再凍結時点で baseline 37 行 — 数がズレたら lint 出力を見て root-fix してから `--update-baseline`)。
 
 ## テスト / migration
 
 - テストは **env 無しで安全**: fixture は `KAWA_TEST_DSN_A/B` (既定 `kawa_test_a/b`) しか見ず、`KAWA_DSN` (=本番 dogfood) を無視する (#91/#92 の事故対応)。`.venv/bin/python -m pytest -q`。
 - migration は ledger 方式で各ファイル 1 回だけ適用 (`scripts/apply_migrations.py`、`schema_migrations` 表)。clean clone は `createdb kawa kawa_test_a kawa_test_b` → 各に適用。
-- drift lint: `.venv/bin/python scripts/lint_vocabulary_drift.py` (31 = main baseline)。
+- drift lint: `.venv/bin/python scripts/lint_vocabulary_drift.py` (main は 0 new / 37 known が green。2026-08-16 再凍結)。
 
 ## 現在の到達点 (2026-08-13)
 
