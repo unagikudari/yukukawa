@@ -56,3 +56,5 @@ Before the repository is made public, all of the following must hold:
 3. GitHub Private Vulnerability Reporting is enabled at the moment visibility changes, so the reporting channel in this policy is live from the first public minute;
 4. `docs/security-model-v0.1.md` maturity markers are current — every control is honestly labeled enforced / designed / deferred;
 5. this policy's scope section still matches the model's invariant list.
+
+The completed gate run is itself evidence and must not evaporate into conversation: record it as a repository-tracked dated record (`docs/publication-gate-record-<date>.md` — who ran it, when, per-point evidence including the discussion-plane disposition) and, where a Kawa deployment is available, as Kawa events. The visibility change must not precede that record.
