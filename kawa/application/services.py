@@ -25,6 +25,37 @@ from kawa.projections.reducers import reduce
 from kawa.storage.emit import Emitter
 from kawa.domain.identity import IdentityContext
 
+# #156 Phase A: managed domain tokens (fail-closed authoring validator, r3-F1).
+# Unknown tokens are rejected at write time; ABSENT tokens are permitted — the
+# legacy/unmapped case surfaces as a stated `domain: UNMAPPED` frontier at
+# orientation time, never as silent coverage. Loaded once per process from the
+# registry SoT; the registry file rides normal PR + adversarial review.
+_DOMAIN_TOKENS: frozenset[str] | None = None
+
+
+def _known_domains() -> frozenset[str]:
+    global _DOMAIN_TOKENS
+    if _DOMAIN_TOKENS is None:
+        import json
+        from pathlib import Path
+        reg = Path(__file__).resolve().parents[2] / "registry" / "vocabulary.json"
+        try:
+            _DOMAIN_TOKENS = frozenset(json.loads(reg.read_text()).get("domains", {}))
+        except OSError:
+            _DOMAIN_TOKENS = frozenset()
+    return _DOMAIN_TOKENS
+
+
+def _validate_domain(domain: str | None) -> None:
+    if domain is None:
+        return
+    known = _known_domains()
+    if domain not in known:
+        raise ValueError(
+            f"unknown domain token {domain!r} — domain must be a managed vocabulary token "
+            f"(registry/vocabulary.json 'domains'; known: {', '.join(sorted(known)) or 'none'}); "
+            "free text is not a domain (#156 r3-F1)")
+
 
 class Kawa:
     def __init__(self, conn: psycopg.Connection, *, identity: IdentityContext,
@@ -49,11 +80,13 @@ class Kawa:
     def create_plan(self, plan_ref: str, project_ref: str, objective: str,
                     rationale: str | None = None, scope: str | None = None,
                     constraints: list[str] | None = None,
-                    expected_observations: list[str] | None = None) -> Event:
+                    expected_observations: list[str] | None = None,
+                    domain: str | None = None) -> Event:
+        _validate_domain(domain)
         return self._emit_reduce(
             PlanCreated(plan_ref=plan_ref, project_ref=project_ref, objective=objective,
                         rationale=rationale, scope=scope, constraints=constraints,
-                        expected_observations=expected_observations)
+                        expected_observations=expected_observations, domain=domain)
         )
 
     def set_plan_lifecycle(self, plan_ref: str, lifecycle: str,
@@ -65,12 +98,14 @@ class Kawa:
     def derive_work(self, work_ref: str, plan_ref: str, work_kind: str,
                     role_requirement: str | None = None, subject_ref: str | None = None,
                     objective: str | None = None, constraints: list[str] | None = None,
-                    expected_observations: list[str] | None = None) -> Event:
+                    expected_observations: list[str] | None = None,
+                    domain: str | None = None) -> Event:
+        _validate_domain(domain)
         return self._emit_reduce(
             WorkDerived(work_ref=work_ref, plan_ref=plan_ref, work_kind=work_kind,
                         role_requirement=role_requirement, subject_ref=subject_ref,
                         objective=objective, constraints=constraints,
-                        expected_observations=expected_observations)
+                        expected_observations=expected_observations, domain=domain)
         )
 
     def retire_work(self, work_ref: str, reason: str, note: str | None = None) -> Event:
