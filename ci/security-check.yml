@@ -1,0 +1,30 @@
+name: security-check
+
+# Mechanical SAST & dependency vulnerability audit for Kawa.
+# Enforces clean Bandit AST static analysis, pip-audit dependency scan,
+# and Kawa domain security invariants.
+
+on:
+  pull_request:
+    paths:
+      - "kawa/**"
+      - "scripts/lint_security.py"
+      - "pyproject.toml"
+      - "ci/security-check.yml"
+  push:
+    branches: [main, "agent/**", "spec/**"]
+
+jobs:
+  security-sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Run unified security & SAST lint
+        run: python3 scripts/lint_security.py
