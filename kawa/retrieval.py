@@ -19,6 +19,15 @@ Epistemic guards:
 - FTS fires only for structurally `textual` intents (unbound text terms) or an explicit
   fallback policy — pure-ref intents plan ZERO lexical classes (§10.4; the compiler's
   output is data, so this is testable, not a vibe).
+- Scope boundary (#146 / ADV-02, scope-resolution v0.1): every query class filters on the
+  viewer's authorized scopes IN SQL, before budgets and aggregation. `viewer_scopes` is a
+  trusted execution parameter — never part of Intent, so caller text can never widen
+  authorization (§5: providing a scope does not grant access). Omission is NOT all scopes:
+  the default grants `fleet` only; envelope-v1 events (`scope_ref IS NULL`, the stated
+  rolling-transition carve-out of sql/0010) remain visible. Out-of-scope matches are
+  withheld with an aggregate COUNT per class (`Bundle.scope_withheld`) — stated, never
+  silent, and never identifying (no refs, no relations: disclosure fails closed while the
+  honesty rule above keeps holding).
 - supports and contradicts share one fair-share budget group (round-2 Lock 2): a biting
   cap can never keep supporting evidence while silently dropping contradiction.
 - standing / protocol-state fields are attached verbatim — retrieval never recomputes or
@@ -47,6 +56,13 @@ _RELATION_GROUPS: list[tuple[str, ...]] = [
 _GROUP_OF = {r: i for i, group in enumerate(_RELATION_GROUPS) for r in group}
 
 _PATH_EDGE_BUDGET = 8      # compact path summaries: beyond this, deterministic truncation
+
+# #146: default viewer grant — fleet plus the envelope-v1 NULL carve-out, nothing more.
+_DEFAULT_SCOPES: frozenset[str] = frozenset({"fleet"})
+
+# SQL fragment over an `events` alias: in-scope iff unscoped legacy (v1) or granted.
+_IN_SCOPE = "({a}.scope_ref IS NULL OR {a}.scope_ref = ANY(%s))"
+_OUT_SCOPE = "({a}.scope_ref IS NOT NULL AND NOT {a}.scope_ref = ANY(%s))"
 
 
 @dataclass(frozen=True)
@@ -111,27 +127,43 @@ class Bundle:
     skipped_classes: list[str] = field(default_factory=list)            # deferred lexical, not fired
     fts_queries: list[str] = field(default_factory=list)                # generated tsquery strings
     vector_frontier: list[str] = field(default_factory=list)            # index lag / model, stated (§10.3)
+    viewer_scopes: tuple[str, ...] = ()                                 # #146: the scope answered under
+    scope_withheld: dict[str, int] = field(default_factory=dict)        # class_id -> count (no refs)
 
 
 # ---- phase 1: binding (state-dependent, honestly — bound refs become provenance) ----
 
-def resolve_bindings(conn: psycopg.Connection, intent: Intent) -> BoundIntent:
+def resolve_bindings(conn: psycopg.Connection, intent: Intent,
+                     viewer_scopes: frozenset[str] = _DEFAULT_SCOPES) -> BoundIntent:
+    """#146: binding IS the anchor's authorization gate — an out-of-scope ref binds to
+    nothing (scope-resolution v0.1 §4: zero candidates -> not_found; existence is not
+    disclosed). Projections (plan/work) bind iff at least one defining event is in scope."""
     anchor_kind = anchor_ref = None
+    scopes = list(viewer_scopes)
+    ev_in = _IN_SCOPE.format(a="e")
     with conn.cursor() as cur:
         if intent.about:
-            cur.execute("SELECT 1 FROM event_claim WHERE event_id=%s", (intent.about,))
+            cur.execute("SELECT 1 FROM event_claim ec JOIN events e ON e.event_id=ec.event_id "
+                        f"WHERE ec.event_id=%s AND {ev_in}", (intent.about, scopes))
             if cur.fetchone():
                 anchor_kind, anchor_ref = "claim_event", intent.about
             else:
-                cur.execute("SELECT 1 FROM events WHERE event_id=%s", (intent.about,))
+                cur.execute(f"SELECT 1 FROM events e WHERE e.event_id=%s AND {ev_in}",
+                            (intent.about, scopes))
                 if cur.fetchone():
                     anchor_kind, anchor_ref = "event", intent.about
                 else:
-                    cur.execute("SELECT 1 FROM current_plans WHERE plan_ref=%s", (intent.about,))
+                    cur.execute(
+                        "SELECT 1 FROM current_plans cp WHERE cp.plan_ref=%s AND EXISTS "
+                        "  (SELECT 1 FROM event_plan p JOIN events e ON e.event_id=p.event_id "
+                        f"   WHERE p.plan_ref=cp.plan_ref AND {ev_in})", (intent.about, scopes))
                     if cur.fetchone():
                         anchor_kind, anchor_ref = "plan", intent.about
                     else:
-                        cur.execute("SELECT 1 FROM current_work WHERE work_ref=%s", (intent.about,))
+                        cur.execute(
+                            "SELECT 1 FROM current_work cw WHERE cw.work_ref=%s AND EXISTS "
+                            "  (SELECT 1 FROM event_work w JOIN events e ON e.event_id=w.event_id "
+                            f"   WHERE w.work_ref=cw.work_ref AND {ev_in})", (intent.about, scopes))
                         if cur.fetchone():
                             anchor_kind, anchor_ref = "work", intent.about
     unbound = intent.text_terms or None
@@ -189,9 +221,10 @@ def compile_plan(bound: BoundIntent) -> RetrievalPlan:
 # ---- phase 3: execute ----
 
 def retrieve(conn: psycopg.Connection, intent: Intent,
-             embedder: "VectorEmbedder | None" = None) -> Bundle:
-    plan = compile_plan(resolve_bindings(conn, intent))
-    bundle = Bundle(plan=plan)
+             embedder: "VectorEmbedder | None" = None, *,
+             viewer_scopes: frozenset[str] = _DEFAULT_SCOPES) -> Bundle:
+    plan = compile_plan(resolve_bindings(conn, intent, viewer_scopes))
+    bundle = Bundle(plan=plan, viewer_scopes=tuple(sorted(viewer_scopes)))
     structural_total = 0
     for qc in plan.query_classes:
         if qc.fts_reason == "structured_underflow":
@@ -201,9 +234,9 @@ def retrieve(conn: psycopg.Connection, intent: Intent,
                     f"{qc.class_id} (threshold met: {structural_total} structural records)")
                 continue
         if qc.purpose == "vector":
-            records = _exec_vector(conn, plan, qc, bundle, embedder)
+            records = _exec_vector(conn, plan, qc, bundle, embedder, viewer_scopes)
         else:
-            records = _EXECUTORS[qc.purpose](conn, plan, qc, bundle)
+            records = _EXECUTORS[qc.purpose](conn, plan, qc, bundle, viewer_scopes)
         if qc.backend not in ("fts", "vector"):
             structural_total += len(records)
         if records:
@@ -254,8 +287,15 @@ def _standing_of(cur: psycopg.Cursor, event_id: str) -> str | None:
     return row[0] if row else None
 
 
+def _withhold(bundle: Bundle, qc: QueryClass, n: int) -> None:
+    if n > 0:
+        bundle.scope_withheld[qc.class_id] = bundle.scope_withheld.get(qc.class_id, 0) + n
+
+
 def _exec_anchor(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
-                 bundle: Bundle) -> list[Record]:
+                 bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
+    # anchor authorization happened at binding (resolve_bindings) — an out-of-scope
+    # anchor never reaches an executor.
     b = plan.bound
     with conn.cursor() as cur:
         if b.anchor_kind in ("claim_event", "event"):
@@ -279,7 +319,7 @@ def _exec_anchor(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
 
 
 def _exec_standing(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
-                   bundle: Bundle) -> list[Record]:
+                   bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
     anchor = plan.bound.anchor_ref
     with conn.cursor() as cur:
         standing = _standing_of(cur, anchor)
@@ -290,53 +330,84 @@ def _exec_standing(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass
 
 
 def _exec_evidence(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
-                   bundle: Bundle) -> list[Record]:
+                   bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
     """Resolved supports/contradicts edges touching the anchor — fair-share budget between
     the two relation types (Lock 2): floor(budget/2) each, leftovers interleaved."""
     anchor = plan.bound.anchor_ref
+    scopes = list(viewer_scopes)
     out: list[Record] = []
     with conn.cursor() as cur:
         per = max(qc.budget // 2, 1)
         for relation in ("supports", "contradicts"):     # fixed order, EQUAL budget — no bias
             cur.execute(
-                "SELECT source_ref FROM event_links WHERE resolved AND relation=%s AND target_ref=%s "
-                "ORDER BY source_ref LIMIT %s", (relation, anchor, per))
+                "SELECT l.source_ref FROM event_links l JOIN events e ON e.event_id=l.source_ref "
+                f"WHERE l.resolved AND l.relation=%s AND l.target_ref=%s AND {_IN_SCOPE.format(a='e')} "
+                "ORDER BY l.source_ref LIMIT %s", (relation, anchor, scopes, per))
             for (src,) in cur.fetchall():
                 kind, summary = _summary_of(cur, src)
                 out.append(Record(ref=src, kind=kind, summary=summary, backend=qc.backend,
                                   class_id=qc.class_id, path=f"{anchor} <-{relation}- {src}",
                                   standing=_standing_of(cur, src)))
+            # withheld: aggregate count only — no refs, no per-relation split (a split
+            # would itself disclose which side of the evidence is being withheld)
+            cur.execute(
+                "SELECT count(*) FROM event_links l JOIN events e ON e.event_id=l.source_ref "
+                f"WHERE l.resolved AND l.relation=%s AND l.target_ref=%s AND {_OUT_SCOPE.format(a='e')}",
+                (relation, anchor, scopes))
+            _withhold(bundle, qc, cur.fetchone()[0])
     return out
 
 
 def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
-                       bundle: Bundle) -> list[Record]:
+                       bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
     """Deterministic BFS over resolved links, both directions. Expansion order: relation
     GROUP priority (Lock 2 fair-share inside group 1 via alternation), then target hlc,
-    then ref. Frontier entries on every stop; unresolved links surface separately."""
+    then ref. Frontier entries on every stop; unresolved links surface separately.
+    #146: edges only expand to in-scope endpoints (SQL-level join); out-of-scope edges
+    are counted into scope_withheld without appearing in any frontier (a frontier entry
+    would disclose the restricted ref and relation)."""
     b = plan.bound
     root = b.anchor_ref
+    scopes = list(viewer_scopes)
     depth_cap, row_cap = b.intent.relation_depth, qc.budget
     out: list[Record] = []
     visited: set[str] = {root}
     frontier_q: list[tuple[str, int, str]] = [(root, 0, root)]   # (node, depth, path)
 
     with conn.cursor() as cur:
-        # unresolved links touching the root's component are a SEPARATE fact (step-2 frontier)
-        cur.execute("SELECT source_ref, relation, target_ref FROM event_links "
-                    "WHERE NOT resolved AND (source_ref=%s OR target_ref=%s)", (root, root))
+        # unresolved links touching the root's component are a SEPARATE fact (step-2
+        # frontier). The link event itself must be in scope to be disclosed (its
+        # target is a ghost — not held — so the endpoint carries no local scope).
+        cur.execute("SELECT l.source_ref, l.relation, l.target_ref FROM event_links l "
+                    "JOIN events le ON le.event_id=l.asserted_by_event_id "
+                    f"WHERE NOT l.resolved AND (l.source_ref=%s OR l.target_ref=%s) "
+                    f"AND {_IN_SCOPE.format(a='le')}", (root, root, scopes))
         for s, r, t in cur.fetchall():
             bundle.unresolved_frontier.append(FrontierEntry(source_node=s, relation=r,
                                                             next_ref=t, reason="unresolved"))
         while frontier_q:
             node, depth, path = frontier_q.pop(0)
             cur.execute(
-                "SELECT relation, target_ref AS other, 'out' AS dir FROM event_links "
-                "WHERE resolved AND source_ref=%s "
+                "SELECT l.relation, l.target_ref AS other, 'out' AS dir FROM event_links l "
+                "JOIN events e ON e.event_id=l.target_ref "
+                f"WHERE l.resolved AND l.source_ref=%s AND {_IN_SCOPE.format(a='e')} "
                 "UNION ALL "
-                "SELECT relation, source_ref AS other, 'in' AS dir FROM event_links "
-                "WHERE resolved AND target_ref=%s", (node, node))
+                "SELECT l.relation, l.source_ref AS other, 'in' AS dir FROM event_links l "
+                "JOIN events e ON e.event_id=l.source_ref "
+                f"WHERE l.resolved AND l.target_ref=%s AND {_IN_SCOPE.format(a='e')}",
+                (node, scopes, node, scopes))
             edges = cur.fetchall()
+            cur.execute(
+                "SELECT count(*) FROM ("
+                "  SELECT l.target_ref AS other FROM event_links l "
+                "  JOIN events e ON e.event_id=l.target_ref "
+                f"  WHERE l.resolved AND l.source_ref=%s AND {_OUT_SCOPE.format(a='e')} "
+                "  UNION ALL "
+                "  SELECT l.source_ref FROM event_links l "
+                "  JOIN events e ON e.event_id=l.source_ref "
+                f"  WHERE l.resolved AND l.target_ref=%s AND {_OUT_SCOPE.format(a='e')}"
+                ") withheld", (node, scopes, node, scopes))
+            _withhold(bundle, qc, cur.fetchone()[0])
             # deterministic expansion order (round-2 lock): group, then interleave the
             # fair-share group by alternation, then target hlc/ref
             def hlc_key(ref: str) -> tuple:
@@ -383,29 +454,45 @@ def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryC
 
 
 def _exec_lexical(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
-                  bundle: Bundle) -> list[Record]:
+                  bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
     terms = plan.bound.unbound_text or plan.bound.intent.text_terms or ""
+    scopes = list(viewer_scopes)
     out: list[Record] = []
     with conn.cursor() as cur:
         cur.execute("SELECT websearch_to_tsquery('english', %s)::text", (terms,))
         bundle.fts_queries.append(f"{qc.fts_reason}: {cur.fetchone()[0]}")
+        _match = "to_tsvector('english', ec.proposition) @@ websearch_to_tsquery('english', %s)"
         cur.execute(
-            "SELECT event_id, proposition FROM event_claim "
-            "WHERE to_tsvector('english', proposition) @@ websearch_to_tsquery('english', %s) "
-            "ORDER BY event_id LIMIT %s", (terms, qc.budget))
+            "SELECT ec.event_id, ec.proposition FROM event_claim ec "
+            "JOIN events e ON e.event_id=ec.event_id "
+            f"WHERE {_match} AND {_IN_SCOPE.format(a='e')} "
+            "ORDER BY ec.event_id LIMIT %s", (terms, scopes, qc.budget))
         for eid, prop in cur.fetchall():
             out.append(Record(ref=eid, kind="claim.recorded", summary=prop, backend=qc.backend,
                               class_id=qc.class_id, path=f"fts:{terms!r}",
                               standing=_standing_of(cur, eid)))
+        cur.execute(
+            "SELECT count(*) FROM event_claim ec JOIN events e ON e.event_id=ec.event_id "
+            f"WHERE {_match} AND {_OUT_SCOPE.format(a='e')}", (terms, scopes))
+        _withhold(bundle, qc, cur.fetchone()[0])
         remaining = qc.budget - len(out)
         if remaining > 0:
+            # a plan is in scope iff at least one of its defining events is (projections
+            # carry no scope of their own — binding uses the same rule)
+            _pmatch = "to_tsvector('english', cp.objective) @@ websearch_to_tsquery('english', %s)"
+            _pscope = ("EXISTS (SELECT 1 FROM event_plan p JOIN events e ON e.event_id=p.event_id "
+                       f"WHERE p.plan_ref=cp.plan_ref AND {_IN_SCOPE.format(a='e')})")
             cur.execute(
-                "SELECT plan_ref, objective FROM current_plans "
-                "WHERE to_tsvector('english', objective) @@ websearch_to_tsquery('english', %s) "
-                "ORDER BY plan_ref LIMIT %s", (terms, remaining))
+                f"SELECT cp.plan_ref, cp.objective FROM current_plans cp "
+                f"WHERE {_pmatch} AND {_pscope} ORDER BY cp.plan_ref LIMIT %s",
+                (terms, scopes, remaining))
             for pr, o in cur.fetchall():
                 out.append(Record(ref=pr, kind="plan", summary=o, backend=qc.backend,
                                   class_id=qc.class_id, path=f"fts:{terms!r}"))
+            cur.execute(
+                f"SELECT count(*) FROM current_plans cp WHERE {_pmatch} AND NOT {_pscope}",
+                (terms, scopes))
+            _withhold(bundle, qc, cur.fetchone()[0])
     return out
 
 
@@ -429,24 +516,28 @@ def _indexed_model(cur: psycopg.Cursor) -> tuple[str, int] | None:
     return (row[0], row[1]) if row else None
 
 
-def _anchor_content_event(cur: psycopg.Cursor, bound: BoundIntent) -> str | None:
+def _anchor_content_event(cur: psycopg.Cursor, bound: BoundIntent,
+                          scopes: list[str]) -> str | None:
     """The event whose canonical text stands for the anchor (query-vector source).
     claim/event anchors are themselves; a plan is its latest objective-bearing
-    event; a work is its work.derived event."""
+    event; a work is its work.derived event. #146: for projection anchors, only
+    in-scope defining events may stand for the anchor — a mixed-scope plan must
+    not derive its query vector from a restricted revision."""
     if bound.anchor_kind in ("claim_event", "event"):
         return bound.anchor_ref
     if bound.anchor_kind == "plan":
         cur.execute(
             "SELECT p.event_id FROM event_plan p JOIN events e ON e.event_id = p.event_id "
-            "WHERE p.plan_ref = %s AND p.objective IS NOT NULL "
-            "ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1", (bound.anchor_ref,))
+            f"WHERE p.plan_ref = %s AND p.objective IS NOT NULL AND {_IN_SCOPE.format(a='e')} "
+            "ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1", (bound.anchor_ref, scopes))
         row = cur.fetchone()
         return row[0] if row else None
     if bound.anchor_kind == "work":
         cur.execute(
             "SELECT w.event_id FROM event_work w JOIN events e ON e.event_id = w.event_id "
-            "WHERE w.work_ref = %s ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1",
-            (bound.anchor_ref,))
+            f"WHERE w.work_ref = %s AND {_IN_SCOPE.format(a='e')} "
+            "ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1",
+            (bound.anchor_ref, scopes))
         row = cur.fetchone()
         return row[0] if row else None
     return None
@@ -468,7 +559,8 @@ def _domain_ref(cur: psycopg.Cursor, event_id: str, kind: str) -> str:
 
 
 def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
-                 bundle: Bundle, embedder: VectorEmbedder | None) -> list[Record]:
+                 bundle: Bundle, embedder: VectorEmbedder | None,
+                 viewer_scopes: frozenset[str] = _DEFAULT_SCOPES) -> list[Record]:
     """Step 11B (#122): semantic nearest-neighbors over the §12.2 embedding
     materialization. Anchored intents use the anchor's STORED embedding (pure
     SQL — no live model); textual intents embed the unbound text live. Every
@@ -476,25 +568,31 @@ def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
     answering model are stated in vector_frontier. Similarity is presentation
     order — non-epistemic (§10.4): this executor reads, never writes."""
     b = plan.bound
+    scopes = list(viewer_scopes)
     with conn.cursor() as cur:
         indexed = _indexed_model(cur)
         if indexed is None:
             bundle.skipped_classes.append(f"{qc.class_id} (vector index empty)")
             return []
         model, _n = indexed
-        cur.execute("SELECT count(*) FROM events WHERE materialized")
+        # coverage stated over the VIEWER's scope — an aggregate over restricted scopes
+        # would leak their event volume (#146)
+        cur.execute("SELECT count(*) FROM events ev WHERE ev.materialized "
+                    f"AND {_IN_SCOPE.format(a='ev')}", (scopes,))
         materialized = cur.fetchone()[0]
         cur.execute(
-            "SELECT count(*) FROM event_content c WHERE EXISTS "
+            "SELECT count(*) FROM event_content c "
+            "JOIN events ev ON ev.event_id = c.event_id "
+            f"WHERE {_IN_SCOPE.format(a='ev')} AND EXISTS "
             "  (SELECT 1 FROM content_embedding e WHERE e.content_digest = c.content_digest "
-            "   AND e.model_identity = %s)", (model,))
+            "   AND e.model_identity = %s)", (scopes, model))
         covered = cur.fetchone()[0]
         bundle.vector_frontier.append(
             f"model={model} coverage={covered}/{materialized} materialized events")
 
         anchor_event: str | None = None
         if b.anchor_ref is not None:
-            anchor_event = _anchor_content_event(cur, b)
+            anchor_event = _anchor_content_event(cur, b, scopes)
             qvec: str | None = None
             if anchor_event is not None:
                 cur.execute(
@@ -541,8 +639,9 @@ def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
                 "JOIN content_embedding e ON e.content_digest = c.content_digest "
                 "JOIN events ev ON ev.event_id = c.event_id "
                 "WHERE e.model_identity = %s AND c.event_id <> %s AND ev.materialized "
+                f"AND {_IN_SCOPE.format(a='ev')} "
                 "ORDER BY e.embedding <=> %s::vector, c.event_id LIMIT %s OFFSET %s",
-                (qvec, model, anchor_event or "", qvec, chunk, offset))
+                (qvec, model, anchor_event or "", scopes, qvec, chunk, offset))
             rows = cur.fetchall()
             if not rows:
                 break
