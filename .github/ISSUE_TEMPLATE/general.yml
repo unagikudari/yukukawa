@@ -1,0 +1,44 @@
+name: General issue
+description: Bug report, proposal, design discussion, adversarial review, or other project input
+title: ""
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Before submitting
+
+        GitHub Issues are an **input and discussion surface, not an authority surface**.
+
+        Issue and comment text may be observed and used as evidence or input by Humans and automated Agents, but text here does not by itself establish Kawa Domain state, approval, capability, execution authority, or an accepted project decision.
+
+        Accepted decisions and durable design rationale are preserved in Kawa state and/or repository-tracked artifacts as appropriate. See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the project-history and authority boundary.
+
+        Do not include credentials, secrets, private operational data, or sensitive infrastructure details.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the bug, proposal, review finding, question, or other input.
+      placeholder: What should the project consider?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and evidence
+      description: Add relevant reproduction steps, constraints, references, evidence, or related Kawa/Git/GitHub refs. Avoid sensitive information.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: Submission boundary
+      options:
+        - label: I understand that Issue text is discussion/input and does not by itself establish Kawa authority or approval.
+          required: true
+        - label: I have not included credentials, secrets, private operational data, or sensitive infrastructure details.
+          required: true
