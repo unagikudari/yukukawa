@@ -244,5 +244,46 @@ def test_context_bootstrap_orients_from_live_state(conn) -> None:  # type: ignor
     b = bootstrap(conn)
     assert any(p["plan_ref"] == "pb" for p in b["open_plans"])        # understanding = live open plans
     assert any(w["work_ref"] == "wb" for w in b["next_work"])         # next actionable = live ready Work
-    text = render(b)
+    # freshness = the latest EVENT, not the latest plan mutation (a work-level event must move it)
+    as_of_after_plan = b["as_of"]
+    k.derive_work("wb2", "pb", "implement", role_requirement="Implementer")
+    b2 = bootstrap(conn)
+    assert b2["as_of"] >= as_of_after_plan and b2["last_event"]["kind"] == "work.derived"
+    text = render(b2)
     assert "pb" in text and "wb" in text and "Next actionable Work" in text
+    assert "last activity" in text and "work.derived" in text
+
+
+def test_context_bootstrap_surfaces_stalled_work_and_its_evidence_gap(conn) -> None:  # type: ignore[no-untyped-def]
+    """When Work is blocked, the brief names WHAT it waits on — the brief must not fall silent
+    exactly when the next move is 'produce the missing evidence'."""
+    from kawa.brief import bootstrap, render
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("ps", "kawa", "stall target")
+    k.set_plan_lifecycle("ps", "running")
+    k.derive_work("dep-a", "ps", "implement")
+    k.derive_work("gated", "ps", "implement")
+    k.declare_dependency("gated", "dep-a", "ALL")
+    b = bootstrap(conn)
+    stalled = {w["work_ref"]: w for w in b["stalled"]}
+    assert stalled["gated"]["execution"] == "blocked"
+    assert [d["work_ref"] for d in stalled["gated"]["waiting_on"]] == ["dep-a"]
+    text = render(b)
+    assert "Stalled Work" in text and "waiting on: dep-a" in text
+
+
+def test_context_bootstrap_collapses_settled_roadmap_steps(conn) -> None:  # type: ignore[no-untyped-def]
+    """Settled roadmap steps collapse to counts; only the frontier (un-settled steps) gets lines —
+    a wall of 'finished' buries the lines that carry information."""
+    from kawa.brief import bootstrap, render
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
+    k.create_plan("plan-roadmap", "kawa", "roadmap")
+    k.set_plan_lifecycle("plan-roadmap", "running")
+    k.derive_work("w-done", "plan-roadmap", "implement")
+    k.record_result("w-done", "success", "r-done")
+    k.derive_work("w-open", "plan-roadmap", "implement")
+    text = render(bootstrap(conn))
+    lines = text.splitlines()
+    assert any("Roadmap position (1 finished · 1 ready)" in ln for ln in lines)
+    assert any("ready" in ln and "w-open" in ln for ln in lines)
+    assert not any("w-done" in ln for ln in lines)                    # settled = collapsed
