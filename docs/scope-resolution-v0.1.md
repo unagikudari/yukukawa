@@ -14,7 +14,7 @@ This document defines how Project/scope context is derived for reads, writes, se
 
 ## 3. Resolution inputs
 
-Scope MAY be derived from trusted context such as:
+Scope MAY be derived from authority-bearing context such as:
 
 ```text
 authenticated principal/workload
@@ -26,7 +26,7 @@ resource binding
 causation context
 ```
 
-Untrusted natural-language text MUST NOT widen authorization scope.
+Caller-supplied natural-language text (unverified input) MUST NOT widen authorization scope.
 
 ## 4. Resolution algorithm
 
@@ -36,7 +36,7 @@ Conceptually:
 authenticate
 → determine authorized candidate scopes
 → apply explicit target/ref constraints
-→ apply trusted current Work/session context
+→ apply authority-bearing current Work/session context
 → candidate count
     1 → fill automatically
     >1 → needs_selection
@@ -55,7 +55,7 @@ Kawa still authorizes the requested scope independently.
 
 ## 6. Implicit scope
 
-If scope is uniquely determined by trusted context, the LLM-facing schema SHOULD omit the scope field entirely.
+If scope is uniquely determined by authority-bearing context, the LLM-facing schema SHOULD omit the scope field entirely.
 
 Example:
 
@@ -84,7 +84,7 @@ Only discoverable authorized choices may be shown.
 
 ## 8. Search
 
-`kawa.search` with no explicit Project is legal only when trusted context resolves one authorized search scope.
+`kawa.search` with no explicit Project is legal only when authority-bearing context resolves one authorized search scope.
 
 Otherwise it returns `needs_selection`.
 
@@ -92,7 +92,7 @@ Omission MUST NOT mean search across every Project visible to the principal unle
 
 ## 9. Emit
 
-`kawa.emit` SHOULD derive Project context from the subject, current Work, causation, or trusted session context whenever unambiguous.
+`kawa.emit` SHOULD derive Project context from the subject, current Work, causation, or authority-bearing session context whenever unambiguous.
 
 The caller does not need to repeat `project` when it is already implied.
 

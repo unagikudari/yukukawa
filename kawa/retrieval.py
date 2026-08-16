@@ -21,10 +21,14 @@ Epistemic guards:
   output is data, so this is testable, not a vibe).
 - Scope boundary (#146 / ADV-02, scope-resolution v0.1): every query class filters on the
   viewer's authorized scopes IN SQL, before budgets and aggregation. `viewer_scopes` is a
-  trusted execution parameter — never part of Intent, so caller text can never widen
-  authorization (§5: providing a scope does not grant access). Omission is NOT all scopes:
-  the default grants `fleet` only; envelope-v1 events (`scope_ref IS NULL`, the stated
-  rolling-transition carve-out of sql/0010) remain visible. Out-of-scope matches in
+  REQUIRED execution parameter resolved by the caller from authenticated/authorized
+  context — never part of Intent (caller text cannot widen authorization; §5: providing
+  a scope does not grant access), and never defaulted: omission is a TypeError at this
+  enforcement boundary, not a scope selection (§2: never interpret omission as all — or
+  any — scope). The semantic/MCP surface derives scopes from the participant session;
+  harnesses pass `FLEET_SCOPES` explicitly. Envelope-v1 events (`scope_ref IS NULL`)
+  remain visible as a TRANSITIONAL carve-out (sql/0010 rolling transition) — deliberate
+  compatibility, not permanent semantics; it retires when v1 events are archived. Out-of-scope matches in
   STRUCTURAL classes (ref-driven off a visible anchor) are withheld with an aggregate
   COUNT per class (`Bundle.scope_withheld`) — stated, never silent, never identifying
   (no refs, no relations). The lexical class reports NO count: its terms are
@@ -59,10 +63,13 @@ _GROUP_OF = {r: i for i, group in enumerate(_RELATION_GROUPS) for r in group}
 
 _PATH_EDGE_BUDGET = 8      # compact path summaries: beyond this, deterministic truncation
 
-# #146: default viewer grant — fleet plus the envelope-v1 NULL carve-out, nothing more.
-_DEFAULT_SCOPES: frozenset[str] = frozenset({"fleet"})
+# #146: the harness grant — fleet only. Exported for callers that legitimately answer
+# under fleet visibility (CLI/console/eval harnesses); production surfaces resolve
+# scopes from the participant session instead. There is NO implicit default.
+FLEET_SCOPES: frozenset[str] = frozenset({"fleet"})
 
-# SQL fragment over an `events` alias: in-scope iff unscoped legacy (v1) or granted.
+# SQL fragment over an `events` alias: in-scope iff granted, or unscoped envelope-v1
+# (TRANSITIONAL carve-out — retires when v1 events are archived).
 _IN_SCOPE = "({a}.scope_ref IS NULL OR {a}.scope_ref = ANY(%s))"
 _OUT_SCOPE = "({a}.scope_ref IS NOT NULL AND NOT {a}.scope_ref = ANY(%s))"
 
@@ -136,7 +143,7 @@ class Bundle:
 # ---- phase 1: binding (state-dependent, honestly — bound refs become provenance) ----
 
 def resolve_bindings(conn: psycopg.Connection, intent: Intent,
-                     viewer_scopes: frozenset[str] = _DEFAULT_SCOPES) -> BoundIntent:
+                     viewer_scopes: frozenset[str]) -> BoundIntent:
     """#146: binding IS the anchor's authorization gate — an out-of-scope ref binds to
     nothing (scope-resolution v0.1 §4: zero candidates -> not_found; existence is not
     disclosed). Projections (plan/work) bind iff at least one defining event is in scope."""
@@ -224,7 +231,7 @@ def compile_plan(bound: BoundIntent) -> RetrievalPlan:
 
 def retrieve(conn: psycopg.Connection, intent: Intent,
              embedder: "VectorEmbedder | None" = None, *,
-             viewer_scopes: frozenset[str] = _DEFAULT_SCOPES) -> Bundle:
+             viewer_scopes: frozenset[str]) -> Bundle:
     plan = compile_plan(resolve_bindings(conn, intent, viewer_scopes))
     bundle = Bundle(plan=plan, viewer_scopes=tuple(sorted(viewer_scopes)))
     structural_total = 0
@@ -595,7 +602,7 @@ def _domain_ref(cur: psycopg.Cursor, event_id: str, kind: str) -> str:
 
 def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
                  bundle: Bundle, embedder: VectorEmbedder | None,
-                 viewer_scopes: frozenset[str] = _DEFAULT_SCOPES) -> list[Record]:
+                 viewer_scopes: frozenset[str]) -> list[Record]:
     """Step 11B (#122): semantic nearest-neighbors over the §12.2 embedding
     materialization. Anchored intents use the anchor's STORED embedding (pure
     SQL — no live model); textual intents embed the unbound text live. Every

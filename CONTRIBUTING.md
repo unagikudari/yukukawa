@@ -23,13 +23,17 @@ The project uses three distinct planes:
 
 ```text
 Kawa
-  authoritative process / state / provenance
+  authoritative for its own Domain history and coordination state;
+  records provenance / verification basis (it is not an oracle of
+  provenance truth for other systems)
 
 Git repository
+  authoritative for repository identity and content;
   durable rationale / design and implementation history
 
 GitHub Issues
   discussion / ingress / coordination
+  (an external provider is authoritative only for its source-native record)
 ```
 
 Accepted architectural reasoning should be distilled into repository-tracked documentation rather than requiring future contributors or Agents to reconstruct decisions from Issue threads. Preserve reusable rationale: context, constraints, alternatives considered, the selected direction, rejected alternatives where they matter, security implications, and references to relevant Kawa or Git artifacts.

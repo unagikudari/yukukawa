@@ -91,7 +91,7 @@ def _screen_search(conn: psycopg.Connection, query: dict | None = None) -> str:
     """Narrow harness over kawa.retrieval.retrieve (#100): renders the bundle WITH its
     provenance and frontiers. No stable external schema — the step-6 MCP surface replaces
     this with no compatibility promise."""
-    from kawa.retrieval import Intent, retrieve
+    from kawa.retrieval import FLEET_SCOPES, Intent, retrieve
     q = (query or {})
     about, text = q.get("about", [""])[0].strip(), q.get("q", [""])[0].strip()
     form = ('<section class="card"><h2>Search (SQL-first, structure before similarity)</h2>'
@@ -101,7 +101,9 @@ def _screen_search(conn: psycopg.Connection, query: dict | None = None) -> str:
             '<button type="submit">retrieve</button></form></section>')
     if not about and not text:
         return form
-    bundle = retrieve(conn, Intent(about=about or None, text_terms=text or None))
+    # console is a local read harness answering under fleet visibility — explicit, not defaulted
+    bundle = retrieve(conn, Intent(about=about or None, text_terms=text or None),
+                      viewer_scopes=FLEET_SCOPES)
     p = bundle.plan
     parts = [form, '<section class="card"><h2>Retrieval plan (provenance header)</h2><p class="obj">'
              + html.escape(f"anchor={p.bound.anchor_kind or '—'} textual={p.bound.unbound_text is not None} | "

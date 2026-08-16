@@ -66,9 +66,9 @@ Root/kernel compromise is outside Kawa's host-security guarantee.
 
 Workload Identity is the primary NHI security boundary for Agent, collector, service, and adapter processes.
 
-The OS/kernel and trusted runtime establish workload identity.
+The OS/kernel and attested runtime establish workload identity.
 
-An Agent MUST NOT choose, rewrite, or self-assert its trusted workload identity.
+An Agent MUST NOT choose, rewrite, or self-assert its infrastructure-attested workload identity.
 
 Production Workload authentication MUST demonstrate possession of runtime-held credential material or an authenticated channel binding. Possession of a copied bearer-token string alone is insufficient.
 
@@ -108,7 +108,7 @@ request
 → parse minimum authentication envelope
 → authenticate identity + possession
     invalid → minimal rejection
-    valid   → trusted principal
+    valid   → authenticated principal
 → authorization
 → semantic processing
 → success / Wizard
@@ -181,7 +181,7 @@ connection string
 secret reference material
 ```
 
-The Resource Resolver maps an opaque handle to operational details within the trusted infrastructure boundary.
+The Resource Resolver maps an opaque handle to operational details within the attested infrastructure boundary.
 
 An Agent normally sees the handle and safe metadata, not the underlying locator.
 
@@ -199,7 +199,7 @@ service tokens
 
 Secret-mediated execution is preferred.
 
-A trusted Secret Broker or Adapter may obtain protected credentials internally and perform an authorized operation on behalf of the workload.
+An infrastructure-operated Secret Broker or Adapter may obtain protected credentials internally and perform an authorized operation on behalf of the workload.
 
 Secrets at rest SHOULD be protected independently from Domain Events and MAY use TPM-sealed wrapping keys or equivalent mechanisms.
 
@@ -268,7 +268,7 @@ Emergency actions MUST remain highly visible in Event/Audit history.
 
 ## 11. Agent threat model
 
-Kawa treats an Agent as an authenticated but untrusted decision-maker.
+Kawa treats an Agent as an authenticated principal whose decisions carry no inherent authority — authenticity proves origin, not correctness or semantic authority.
 
 Possible Agent failure modes include:
 
@@ -298,7 +298,7 @@ Examples:
 ```text
 Observation = measured/received evidence
 Claim = accountable assertion or inference
-Fact = derived current interpretation
+Standing = derived, recomputable support status of a Claim
 Plan = proposed organizational decision
 Approval = authority
 Capability = authority boundary
@@ -306,7 +306,7 @@ Capability = authority boundary
 
 These concepts MUST remain distinct.
 
-A Claim is not authoritative merely because it came from an authenticated or privileged Workload. Claim authority and Fact derivation are separate policy questions.
+A Claim is not authoritative merely because it came from an authenticated or privileged Workload. Claim authority and standing derivation are separate policy questions. (Kawa has no Kawa-owned Fact entity — current interpretation belongs to observers; v0.5 §2.)
 
 ## 13. Review and security challenge
 
@@ -365,13 +365,13 @@ External execution uncertainty MUST be reconcilable against the external system.
 
 ## 15. Wizard security boundary
 
-Wizard guidance is available only after trusted authentication.
+Wizard guidance is available only after successful authentication.
 
 After authentication, guidance is filtered by authorization.
 
 ```text
-401: identity not trusted → no Wizard
-403: identity trusted, action forbidden → limited authorized guidance only
+401: identity not authenticated → no Wizard
+403: identity authenticated, action forbidden → limited authorized guidance only
 409: identity/action understood, state conflicts → authenticated Wizard guidance
 ```
 
@@ -379,9 +379,9 @@ After authentication, guidance is filtered by authorization.
 
 ## 16. Accountability
 
-Trusted infrastructure attaches authoritative accountability metadata.
+Attested infrastructure attaches authoritative accountability metadata.
 
-Agents MUST NOT self-assert trusted values such as:
+Agents MUST NOT self-assert infrastructure-attested values such as:
 
 ```text
 node identity
@@ -554,10 +554,10 @@ TPM / Node trust
         ↓
 Node Identity
         ↓
-OS / kernel / trusted runtime
+OS / kernel / attested runtime
         ↓
 Workload Identity
-        ↓ authenticated but untrusted
+        ↓ authenticated, no inherent authority
 Agent
         ↓ semantic request
 AuthZ / Policy / Capability / Approval
@@ -567,7 +567,7 @@ Mediator / Adapter / Secret Broker
 External Resource
 ```
 
-Authority flows downward through explicit trusted boundaries. It does not flow upward from Agent text.
+Authority flows downward through explicit attested boundaries. It does not flow upward from Agent text.
 
 ## 24. Non-goals
 
@@ -588,7 +588,7 @@ A conforming implementation should pass security tests equivalent to:
 ```text
 Invalid authentication cannot discover protected state.
 A copied access-token string without required proof-of-possession cannot authenticate as a production Workload.
-An Agent cannot choose its trusted workload identity.
+An Agent cannot choose its attested workload identity.
 A Resource Handle alone cannot authorize an operation.
 A prompt cannot grant a capability.
 A natural-language approval cannot authorize a high-risk operation.

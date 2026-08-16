@@ -12,6 +12,7 @@ from kawa.application.services import Kawa
 from kawa.domain.identity import IdentityContext
 from kawa.embeddings import (behavior_identity, content_digest_of, embed_missing,
                              embedding_frontier, extract_missing_content)
+from kawa.retrieval import FLEET_SCOPES as FLEET
 from kawa.retrieval import Intent, retrieve
 
 psycopg = pytest.importorskip("psycopg")
@@ -99,7 +100,7 @@ def test_no_collapse_identical_text_two_records(conn, k):  # type: ignore[no-unt
         cur.execute("SELECT count(*) FROM content_embedding WHERE content_digest=%s",
                     (content_digest_of("the replication mesh is healthy"),))
         assert cur.fetchone()[0] == 1                      # one embedding...
-    bundle = retrieve(conn, Intent(about=anchor.event_id))
+    bundle = retrieve(conn, Intent(about=anchor.event_id), viewer_scopes=FLEET)
     refs = {r.ref for r in _vector_records(bundle)}
     assert {c1.event_id, c2.event_id} <= refs              # ...both records
 
@@ -151,7 +152,7 @@ def test_materialized_only_stub_has_no_bytes(conn, k):  # type: ignore[no-untype
 def test_empty_index_is_stated_never_silent(conn, k):  # type: ignore[no-untyped-def]
     c = k.record_claim("lonely claim")
     conn.commit()
-    bundle = retrieve(conn, Intent(about=c.event_id))
+    bundle = retrieve(conn, Intent(about=c.event_id), viewer_scopes=FLEET)
     assert any("vector index empty" in s for s in bundle.skipped_classes)
     assert not _vector_records(bundle)
 
@@ -169,9 +170,9 @@ def test_zero_shadowing_structural_sections_unchanged(conn, k):  # type: ignore[
         return {cid: [r.ref for r in recs] for cid, recs in bundle.sections.items()
                 if "vector" not in cid}
 
-    before = structural(retrieve(conn, Intent(about=claim.event_id)))
+    before = structural(retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET))
     _index(conn, FakeEmbedder())
-    after_bundle = retrieve(conn, Intent(about=claim.event_id))
+    after_bundle = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
     assert structural(after_bundle) == before
 
 
@@ -186,7 +187,7 @@ def test_similarity_is_read_only(conn, k):  # type: ignore[no-untyped-def]
         events_before = cur.fetchone()[0]
         cur.execute("SELECT count(*) FROM event_links")
         links_before = cur.fetchone()[0]
-    retrieve(conn, Intent(about=c.event_id))
+    retrieve(conn, Intent(about=c.event_id), viewer_scopes=FLEET)
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM events")
         assert cur.fetchone()[0] == events_before
@@ -207,7 +208,7 @@ def test_anchored_order_and_domain_ref_mapping(conn, k):  # type: ignore[no-unty
         "w-x (implement of plan-x)": CLOSE,
     })
     _index(conn, emb)
-    bundle = retrieve(conn, Intent(about=anchor.event_id))
+    bundle = retrieve(conn, Intent(about=anchor.event_id), viewer_scopes=FLEET)
     recs = _vector_records(bundle)
     refs = [r.ref for r in recs]
     assert refs[0] == "w-x"                                # CLOSE beats MID
@@ -224,12 +225,12 @@ def test_textual_vector_stated_without_embedder_fires_with_one(conn, k):  # type
         "replication lag?": CLOSE,
     })
     _index(conn, emb)
-    without = retrieve(conn, Intent(text_terms="replication lag?"))
+    without = retrieve(conn, Intent(text_terms="replication lag?"), viewer_scopes=FLEET)
     assert any("needs a live embedder" in s for s in without.skipped_classes)
-    with_model = retrieve(conn, Intent(text_terms="replication lag?"), embedder=emb)
+    with_model = retrieve(conn, Intent(text_terms="replication lag?"), embedder=emb, viewer_scopes=FLEET)
     assert _vector_records(with_model), "textual vector should fire with a live embedder"
     mismatched = FakeEmbedder(name="other-model")
-    stated = retrieve(conn, Intent(text_terms="replication lag?"), embedder=mismatched)
+    stated = retrieve(conn, Intent(text_terms="replication lag?"), embedder=mismatched, viewer_scopes=FLEET)
     assert any("!= indexed model" in s for s in stated.skipped_classes)
 
 
@@ -244,7 +245,7 @@ def test_plan_revisions_dedup_to_one_domain_ref(conn, k):  # type: ignore[no-unt
         "plan-d: second objective wording": MID,
     })
     _index(conn, emb)
-    bundle = retrieve(conn, Intent(about=anchor.event_id))
+    bundle = retrieve(conn, Intent(about=anchor.event_id), viewer_scopes=FLEET)
     plan_refs = [r.ref for r in _vector_records(bundle) if r.ref == "plan-d"]
     assert plan_refs == ["plan-d"]                          # nearest revision only
 
@@ -265,7 +266,7 @@ def test_vector_scope_filters_restricted_neighbors(conn, k):  # type: ignore[no-
         "scope public cousin": MID,
     })
     _index(conn, emb)
-    bundle = retrieve(conn, Intent(about=anchor.event_id))
+    bundle = retrieve(conn, Intent(about=anchor.event_id), viewer_scopes=FLEET)
     refs = [r.ref for r in _vector_records(bundle)]
     assert secret.event_id not in refs
     assert public.event_id in refs
