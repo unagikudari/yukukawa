@@ -73,6 +73,29 @@ example.invalid
 
 The RFC 5737 IPv4 documentation ranges above are preferred when an IP address is necessary in examples.
 
+## Dogfood evidence exception (bare nicknames, real measurements)
+
+Kawa's own doctrine requires fixtures and evaluation corpora for judgment logic to come from **real measurements**, with honest provenance labels — synthetic relabeling would falsify the provenance the artifact exists to preserve. Where the synthetic-data rule above and that doctrine collide, the following narrow exception applies:
+
+Dogfood-derived fixtures, corpora, and measurement records MAY retain, intentionally:
+
+- **bare node/agent nicknames** (e.g. a node short name or an agent lane label) used as provenance attribution, and
+- **real measured values** (lags, counts, timings, event shapes) from the operator's dogfood deployment,
+
+provided that they carry **no network coordinates, hostnames/DNS names, IP addresses, filesystem paths, credentials, or capability bindings** — every other MUST NOT above still applies, and the retention is a deliberate provenance decision, not an oversight.
+
+Consequently, **purging historical nicknames via Git history rewrite is prohibited**: commit identity is load-bearing for Kawa provenance (Events, Results, and review verdicts pin commit hashes; multiple nodes hold checkouts). A finding against a bare nickname is resolved by this exception or by a forward-only change, never by rewriting published history.
+
+## GitHub metadata plane
+
+Changing repository visibility publishes more than the tree: **Issues, Pull Requests, review comments, and their full edit histories** become public at the same moment, and edits do not remove prior revisions from public view. Forks and caches make this exposure irreversible.
+
+Therefore:
+
+- the GitHub discussion plane is part of the publication surface and MUST be explicitly dispositioned before any visibility change (publish-in-place accepted, or a clean mirror repository chosen);
+- while publication is pending, new Issue/PR content SHOULD avoid operational identifiers (host/lane names, local paths, coordination-system task ids) — refer to work by commit hash, document name, and role (e.g. "round-2 reviewer") instead, so the discussion corpus stops accumulating operator detail;
+- redaction-by-edit MUST NOT be relied on as a pre-publication cleanup mechanism.
+
 ## Local configuration pattern
 
 Public repository:

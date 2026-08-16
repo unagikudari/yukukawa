@@ -24,6 +24,8 @@ brief は open plan・roadmap 位置・**次の actionable Work** を返す。�
 4. 実装 → 実装レビュー (evo-gemini)。**自分が攻撃点として挙げた穴は verdict が green でも塞ぐ** (step 5 の freshness/resolvability が実例)。
 5. merge → kawa に Result 記録 (`bridge.complete_review` / `record_result`) で次 step が unblock。
 
+公開準備中 (publication-boundary.md「GitHub metadata plane」): 新規の issue/PR コメントに運用識別子 (host/lane 名・ローカル path・broker task id) を書かない — commit hash・doc 名・役割名 (round-N reviewer 等) で参照する。issue/comment は編集しても旧 revision が公開で残る。
+
 新 doc は `specification-v0.5.md` §26 と `supersession-matrix-v0.1.md` に index。それで C4 drift が 1 増えるので `registry/drift-baseline.json` に 1 行足して green 維持 (README は topic 一覧で contract を列挙しない規約。2026-08-16 再凍結時点で baseline 37 行 — 数がズレたら lint 出力を見て root-fix してから `--update-baseline`)。
 
 ## テスト / migration

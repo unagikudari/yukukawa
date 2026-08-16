@@ -51,7 +51,10 @@ A security report is **input, not authority** ([`CONTRIBUTING.md`](CONTRIBUTING.
 
 Before the repository is made public, all of the following must hold:
 
-1. `git grep` sweep confirms no violations of the publication boundary's MUST NOT list (no secrets, live identities, operator hostnames/paths/topology) in the full tree **and history to be published**;
-2. GitHub Private Vulnerability Reporting is enabled at the moment visibility changes, so the reporting channel in this policy is live from the first public minute;
-3. `docs/security-model-v0.1.md` maturity markers are current — every control is honestly labeled enforced / designed / deferred;
-4. this policy's scope section still matches the model's invariant list.
+1. `git grep` sweep confirms no violations of the publication boundary's MUST NOT list (no secrets, live identities, operator hostnames/paths/topology) in the full tree **and history to be published** — bare dogfood nicknames are governed by the boundary's dogfood evidence exception, and history rewrite is never the remedy;
+2. the **GitHub discussion plane** (Issues, PRs, comments, and their edit histories — all public and irreversible from the flip) has been explicitly dispositioned: publish-in-place accepted, or a clean mirror chosen (see the boundary's GitHub metadata plane section);
+3. GitHub Private Vulnerability Reporting is enabled at the moment visibility changes, so the reporting channel in this policy is live from the first public minute;
+4. `docs/security-model-v0.1.md` maturity markers are current — every control is honestly labeled enforced / designed / deferred;
+5. this policy's scope section still matches the model's invariant list.
+
+The completed gate run is itself evidence and must not evaporate into conversation: record it as a repository-tracked dated record (`docs/publication-gate-record-<date>.md` — who ran it, when, per-point evidence including the discussion-plane disposition) and, where a Kawa deployment is available, as Kawa events. The visibility change must not precede that record.
