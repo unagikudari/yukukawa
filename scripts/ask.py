@@ -6,7 +6,7 @@ schema; exists to exercise acceptance cases and inspect provenance/frontier beha
 step-6 MCP surface will wrap `retrieve` directly — no compatibility promise to this CLI.
 
 Usage:  KAWA_DSN=dbname=kawa python scripts/ask.py [--about REF] [--text "terms"]
-                                                   [--depth N] [--limit N]
+                                                   [--depth N] [--limit N] [--scope S ...]
 """
 from __future__ import annotations
 
@@ -22,11 +22,17 @@ def main() -> int:
     ap.add_argument("--text")
     ap.add_argument("--depth", type=int, default=2)
     ap.add_argument("--limit", type=int, default=50)
+    ap.add_argument("--scope", action="append", default=None,
+                    help="authorized scope (repeatable; default: fleet). #146: this is a "
+                         "harness convenience — the MCP surface derives scopes from the "
+                         "participant session, never from caller input")
     args = ap.parse_args()
 
     conn = connect()
+    scopes = frozenset(args.scope) if args.scope else frozenset({"fleet"})
     bundle = retrieve(conn, Intent(about=args.about, text_terms=args.text,
-                                   relation_depth=args.depth, limit=args.limit))
+                                   relation_depth=args.depth, limit=args.limit),
+                      viewer_scopes=scopes)
     p = bundle.plan
     print(f"bound: anchor={p.bound.anchor_kind}:{p.bound.anchor_ref} "
           f"textual={p.bound.unbound_text is not None}")
@@ -53,6 +59,11 @@ def main() -> int:
         print(f"traversal frontier (not expanded): {reasons}")
     if bundle.unresolved_frontier:
         print(f"unresolved links (targets not held): {len(bundle.unresolved_frontier)}")
+    print(f"scope: searched under {', '.join(bundle.viewer_scopes)} (+ unscoped legacy)")
+    if bundle.scope_withheld:
+        total = sum(bundle.scope_withheld.values())
+        print(f"scope withheld: {total} record(s) outside your scopes (counts only): "
+              + ", ".join(f"{cid}={n}" for cid, n in sorted(bundle.scope_withheld.items())))
     conn.close()
     return 0
 

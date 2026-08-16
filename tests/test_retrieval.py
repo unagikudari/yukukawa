@@ -177,8 +177,15 @@ def test_ask_harness_output(conn, k, monkeypatch, capsys) -> None:  # type: igno
     monkeypatch.setattr("kawa.storage.db.connect", lambda dsn=None: conn)
     monkeypatch.setattr(ask, "connect", lambda dsn=None: conn)
     monkeypatch.setattr("sys.argv", ["ask.py", "--about", claim.event_id])
+    real_close = conn.close
     conn.close = lambda: None  # type: ignore[method-assign]      # harness closes; fixture reuses
-    ask.main()
+    try:
+        ask.main()
+    finally:
+        conn.close = real_close  # type: ignore[method-assign]
+        conn.rollback()          # end the read txn NOW — a lingering 'idle in transaction'
+                                 # holds ACCESS SHARE locks and deadlocks the next test's
+                                 # TRUNCATE if GC is late closing the leaked handle
     outp = capsys.readouterr().out
     assert "plan:" in outp and "standing" in outp
     assert "q0-anchor_lookup" in outp
@@ -213,3 +220,126 @@ def test_budget_apportionment_deterministic(conn, k) -> None:  # type: ignore[no
     assert sum(budgets) >= 10 and max(budgets) - min(budgets) <= 1   # floor split + remainder
     plan2 = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10)))
     assert plan == plan2
+
+
+# ---- #146 (ADV-02): scope boundaries enforced across all retrieval backends ----
+
+@pytest.fixture()
+def k_restricted(conn):  # type: ignore[no-untyped-def]
+    """A second emitter writing into a scope the default viewer is NOT granted."""
+    return Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"),
+                default_scope="proj-restricted")
+
+
+def test_scope_restricted_anchor_does_not_bind(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """An out-of-scope ref binds to nothing under default grants (not_found — existence is
+    not disclosed), and binds normally once the scope is granted."""
+    secret = k_restricted.record_claim("restricted proposition")
+    bound = resolve_bindings(conn, Intent(about=secret.event_id))
+    assert bound.anchor_kind is None and bound.anchor_ref is None
+    bundle = retrieve(conn, Intent(about=secret.event_id))
+    assert bundle.sections == {}                                   # nothing disclosed
+    granted = retrieve(conn, Intent(about=secret.event_id),
+                       viewer_scopes=frozenset({"fleet", "proj-restricted"}))
+    assert any(r.summary == "restricted proposition"
+               for rs in granted.sections.values() for r in rs)
+
+
+def test_scope_lexical_withholds_restricted_claims(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """Restricted claims never surface through FTS — and the lexical class reports NO
+    withheld count either (F2: caller-chosen terms + exact counts = a blind existence
+    oracle over restricted propositions)."""
+    k.record_claim("alpha finding shared")
+    k_restricted.record_claim("alpha finding restricted")
+    bundle = retrieve(conn, Intent(text_terms="alpha finding"))
+    summaries = [r.summary for rs in bundle.sections.values() for r in rs]
+    assert "alpha finding shared" in summaries
+    assert "alpha finding restricted" not in summaries
+    assert bundle.scope_withheld == {}                             # no oracle: not even a count
+    assert bundle.viewer_scopes == ("fleet",)
+    granted = retrieve(conn, Intent(text_terms="alpha finding"),
+                       viewer_scopes=frozenset({"fleet", "proj-restricted"}))
+    gsum = [r.summary for rs in granted.sections.values() for r in rs]
+    assert "alpha finding restricted" in gsum
+
+
+def test_scope_mixed_plan_shows_only_in_scope_revision(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """F1: a plan visible through an in-scope event must not leak a restricted later
+    revision's objective — neither via the anchor lookup nor via plan FTS (both read
+    the latest IN-SCOPE objective, never the unscoped projection)."""
+    k.create_plan("plan-mixed", "proj", "public objective alpha")
+    k_restricted.create_plan("plan-mixed", "proj", "secret objective omega")   # later revision
+    bundle = retrieve(conn, Intent(about="plan-mixed"))
+    anchor = bundle.sections["q0-anchor_lookup"][0]
+    assert "public objective alpha" in anchor.summary
+    assert "omega" not in anchor.summary
+    fts = retrieve(conn, Intent(text_terms="objective alpha"))
+    fsum = [r.summary for rs in fts.sections.values() for r in rs]
+    assert any("public objective alpha" in s for s in fsum)
+    fts_secret = retrieve(conn, Intent(text_terms="secret objective omega"))
+    assert all("omega" not in r.summary
+               for rs in fts_secret.sections.values() for r in rs)
+
+
+def test_scope_restricted_link_assertion_between_public_events_withheld(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """F4: an edge asserted in a restricted scope between two PUBLIC events is itself
+    restricted content — not expanded, not in frontiers, counted only."""
+    a = k.record_claim("public claim A")
+    b = k.record_claim("public claim B")
+    k_restricted.assert_link(a.event_id, "supports", b.event_id)
+    bundle = retrieve(conn, Intent(about=b.event_id))
+    refs = {r.ref for rs in bundle.sections.values() for r in rs}
+    assert a.event_id not in refs                                  # edge not traversed
+    assert sum(bundle.scope_withheld.values()) >= 1
+    granted = retrieve(conn, Intent(about=b.event_id),
+                       viewer_scopes=frozenset({"fleet", "proj-restricted"}))
+    grefs = {r.ref for rs in granted.sections.values() for r in rs}
+    assert a.event_id in grefs
+
+
+def test_scope_evidence_and_neighborhood_withhold_without_leaking_refs(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    """Restricted evidence neither appears in sections nor leaks its ref/relation through
+    any frontier — only an aggregate count remains."""
+    claim = k.record_claim("service X is healthy")
+    ok = k.record_observation("probe_ok", value_bool=True, method="http_probe")
+    k.assert_link(ok.event_id, "supports", claim.event_id)
+    secret_obs = k_restricted.record_observation("secret_probe", value_bool=False, method="http_probe")
+    k.assert_link(secret_obs.event_id, "contradicts", claim.event_id)
+
+    bundle = retrieve(conn, Intent(about=claim.event_id))
+    refs = {r.ref for rs in bundle.sections.values() for r in rs}
+    assert ok.event_id in refs
+    assert secret_obs.event_id not in refs
+    frontier_refs = {f.next_ref for f in bundle.traversal_frontier} | \
+        {f.next_ref for f in bundle.unresolved_frontier} | \
+        {f.source_node for f in bundle.traversal_frontier} | \
+        {f.source_node for f in bundle.unresolved_frontier}
+    assert secret_obs.event_id not in frontier_refs                # no ref leak, ever
+    assert sum(bundle.scope_withheld.values()) >= 2                # evidence + neighborhood counts
+    # grant the scope -> the contradicting evidence appears (Lock 2 still fair)
+    granted = retrieve(conn, Intent(about=claim.event_id),
+                       viewer_scopes=frozenset({"fleet", "proj-restricted"}))
+    grefs = {r.ref for rs in granted.sections.values() for r in rs}
+    assert secret_obs.event_id in grefs
+    assert not granted.scope_withheld
+
+
+def test_scope_unscoped_legacy_events_remain_visible(conn) -> None:  # type: ignore[no-untyped-def]
+    """Envelope-v1 events (scope_ref IS NULL, the sql/0010 rolling-transition carve-out)
+    stay visible under any grant set — legacy data predates scope commitments."""
+    legacy = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"),
+                  default_scope=None)
+    c = legacy.record_claim("legacy unscoped claim")
+    bundle = retrieve(conn, Intent(about=c.event_id))
+    assert any(r.ref == c.event_id for rs in bundle.sections.values() for r in rs)
+    assert not bundle.scope_withheld
+
+
+def test_scope_filter_is_deterministic(conn, k, k_restricted) -> None:  # type: ignore[no-untyped-def]
+    claim = k.record_claim("service X is healthy")
+    for i in range(3):
+        o = k_restricted.record_observation(f"sec_{i}", value_bool=True, method="http_probe")
+        k.assert_link(o.event_id, "supports", claim.event_id)
+    b1 = retrieve(conn, Intent(about=claim.event_id))
+    b2 = retrieve(conn, Intent(about=claim.event_id))
+    assert b1.sections == b2.sections and b1.scope_withheld == b2.scope_withheld
