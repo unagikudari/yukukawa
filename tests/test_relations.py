@@ -98,8 +98,7 @@ def test_based_on_kind_resolution_and_unknown_is_a_leaf(conn) -> None:  # type: 
     assert any(r[1] == "unknown" for r in rows)          # unresolvable ref stored, typed unknown
     ghost = next(r for r in rows if r[1] == "unknown")
     walk = rel.traverse(conn, "unknown", ghost[2], depth=3)
-    assert walk["edges"] == [] or all(
-        e["relation_kind"] == "based_on" for e in walk["edges"])     # unknown expands nothing new
+    assert walk["edges"] == []                           # an unknown ROOT expands to nothing
 
 
 def test_standing_joined_at_read_closed_vocabulary(conn) -> None:  # type: ignore[no-untyped-def]
@@ -132,6 +131,44 @@ def test_traversal_bidirectional_and_caps_typed(conn) -> None:  # type: ignore[n
                for e in from_work["edges"])
     assert set(from_plan) >= {"is_truncated", "truncated_at_depth", "total_edges_discovered",
                               "node_standing"}           # typed truncation schema (rev 3 §5)
+
+
+def test_claim_standing_consults_the_derived_projection(conn) -> None:  # type: ignore[no-untyped-def]
+    """review 96575b06 F2: claims carry derived epistemic standing — a superseded claim
+    must not read as current; a claim with no standing row is unknown, never current."""
+    k = _k(conn)
+    c = k.record_claim("relations standing probe")
+    with conn.cursor() as cur:
+        assert rel.standing_of(cur, "claim", c.event_id) == "current"       # unevaluated
+        assert rel.standing_of(cur, "claim", "sha256:" + "e" * 64) == "unknown"
+        cur.execute("UPDATE current_claim_standing SET standing='superseded' "
+                    "WHERE claim_event_id=%s", (c.event_id,))
+        assert rel.standing_of(cur, "claim", c.event_id) == "superseded"
+        # an out-of-vocabulary standing is unreachable through the DB — a CHECK constraint
+        # closes the vocabulary at the schema layer (verified: the UPDATE below raises).
+        with pytest.raises(psycopg.errors.CheckViolation):
+            cur.execute("UPDATE current_claim_standing SET standing='weird-future-value' "
+                        "WHERE claim_event_id=%s", (c.event_id,))
+    conn.rollback()
+
+
+def test_traversal_total_cap_stops_discovery(conn) -> None:  # type: ignore[no-untyped-def]
+    """review 96575b06 F3: MAX_TOTAL must truncate — and once hit, the walk stops issuing
+    queries (F1). >100 edges reachable at depth 2; result pinned to exactly the cap."""
+    k = _k(conn)
+    k.create_plan("rcap", "kawa", "total-cap fixture")
+    k.create_plan("rcap2", "kawa", "dependency pool")
+    deps = [f"rdp{j:02d}" for j in range(6)]
+    for d in deps:
+        k.derive_work(d, "rcap2", "implement")
+    for i in range(rel.MAX_FAN_OUT):                     # 20 works under the root plan
+        w = f"rcw{i:02d}"
+        k.derive_work(w, "rcap", "implement")
+        for d in deps:                                   # 6 deps each -> 120 depth-2 edges
+            k.declare_dependency(w, d, "ALL")
+    walk = rel.traverse(conn, "plan", "rcap", depth=2)
+    assert walk["is_truncated"] is True
+    assert walk["total_edges_discovered"] == len(walk["edges"]) == rel.MAX_TOTAL
 
 
 def test_traversal_depth_capped_and_deterministic(conn) -> None:  # type: ignore[no-untyped-def]

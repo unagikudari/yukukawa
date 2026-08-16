@@ -62,7 +62,22 @@ def standing_of(cur, kind: str, subject_id: str) -> str:
         if row is None or row[0] not in _KNOWN_WORK_EXECUTIONS:
             return "unknown"
         return "retired" if row[0] == "retired" else "current"
-    if kind in ("result", "observation", "claim"):
+    if kind == "claim":
+        # claims carry DERIVED epistemic standing (#97 2C) — review 96575b06 F2: a
+        # superseded claim must not read as current. The epistemic axis (contested /
+        # grounded_supported / contradicted / unevaluated) maps to 'current' — the claim
+        # is in force; its epistemic detail is a different axis than lifecycle standing.
+        cur.execute("SELECT standing FROM current_claim_standing WHERE claim_event_id=%s",
+                    (subject_id,))
+        row = cur.fetchone()
+        if row is None:
+            return "unknown"
+        if row[0] == "superseded":
+            return "superseded"
+        if row[0] in ("contested", "grounded_supported", "contradicted", "unevaluated"):
+            return "current"
+        return "unknown"                                  # out-of-vocabulary: loud, never coerced
+    if kind in ("result", "observation"):
         return "current"                                  # immutable events
     return "unknown"
 
@@ -85,6 +100,10 @@ def traverse(conn: psycopg.Connection, subject_kind: str, subject_id: str, *,
         for d in range(1, depth + 1):
             next_frontier: list[tuple[str, str]] = []
             for kind, sid in frontier:
+                if len(edges) >= MAX_TOTAL:               # review 96575b06 F1: stop querying
+                    is_truncated = True                   # the DB once the cap is hit
+                    truncated_at_depth = truncated_at_depth or d
+                    break
                 if kind == "unknown":
                     continue                              # unknown nodes are leaves
                 cur.execute(
