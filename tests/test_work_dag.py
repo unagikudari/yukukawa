@@ -260,3 +260,31 @@ def test_no_coordination_kinds_beyond_registry(conn, k) -> None:  # type: ignore
     assert kinds <= {"plan.created", "plan.lifecycle_changed", "work.derived",
                      "work.dependency_declared", "result.recorded", "link.asserted",
                      "observation.recorded", "claim.recorded", "work.retired"}
+
+
+def test_rebuild_preserves_cross_origin_causality(conn) -> None:  # type: ignore[no-untyped-def]
+    """Replay order is recorded_at (this node's application order), never origin-block
+    order. Repro of the 2026-08-16 dogfood find: a work derived by an alphabetically-LATE
+    origin and retired by an alphabetically-EARLY one resurrected on rebuild — the retire
+    UPDATE replayed first against a not-yet-existing row, then the derive re-inserted it
+    ready. Same inversion regressed a plan's ended lifecycle back to draft."""
+    kz = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="z-origin",
+                                                                actor_ref="pytest"))
+    ka = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="a-origin",
+                                                                actor_ref="pytest"))
+    kz.create_plan("p-xo", "kawa", "cross-origin causality")
+    kz.derive_work("w-xo", "p-xo", "implement")
+    ka.retire_work("w-xo", "obsolete")
+    ka.set_plan_lifecycle("p-xo", "ended", end_reason="cancelled")
+
+    def snapshot():  # type: ignore[no-untyped-def]
+        with conn.cursor() as cur:
+            cur.execute("SELECT execution FROM current_work WHERE work_ref='w-xo'")
+            execution = cur.fetchone()[0]
+            cur.execute("SELECT lifecycle FROM current_plans WHERE plan_ref='p-xo'")
+            lifecycle = cur.fetchone()[0]
+        return execution, lifecycle
+
+    assert snapshot() == ("retired", "ended")     # incremental truth
+    rebuild(conn)
+    assert snapshot() == ("retired", "ended")     # replay must agree, not resurrect

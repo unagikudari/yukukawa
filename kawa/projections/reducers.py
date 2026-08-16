@@ -344,8 +344,16 @@ def load_events(conn: psycopg.Connection) -> list[Event]:
             "SELECT event_id, origin_node, origin_seq, hlc, kind, subject_ref, actor_ref, "
             "policy_digest, payload_digest, prev_hash, self_hash, "
             "envelope_version, scope_ref, scope_digest, materialized FROM events "
-            "ORDER BY origin_node, origin_seq"
+            "ORDER BY recorded_at, origin_node, origin_seq"
         )
+        # recorded_at is THIS node's application order — the only coordinate under which a
+        # replay reproduces what the incremental reducers actually consumed. Origin-block
+        # order (the pre-fix ORDER BY) inverts cross-origin causality: a work.retired that
+        # arrived after a foreign origin's work.derived replays BEFORE it, its UPDATE hits
+        # zero rows, and the later derive resurrects the work as ready (found live in the
+        # 2026-08-16 dogfood rebuild: retired w-b resurfaced to the supervisor; plan p2
+        # regressed ended->draft). The (origin_node, origin_seq) tail is a determinism
+        # tie-break only — per-origin order is already monotone in recorded_at.
         rows = cur.fetchall()
         for (eid, onode, oseq, hlc, kind, subj, actor, pol, pd, prev, sh,
              ever, sref, sdig, mat) in rows:

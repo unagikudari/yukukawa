@@ -149,3 +149,18 @@ def test_iso_renders_utc_regardless_of_session_timezone():  # type: ignore[no-un
     jst = dt.timezone(dt.timedelta(hours=9))
     aware = dt.datetime(2026, 8, 15, 10, 34, 24, tzinfo=jst)   # = 01:34:24Z
     assert _iso(aware) == "2026-08-15T01:34:24Z"
+
+
+def test_tick_never_leaves_a_transaction_open(conn, k, tmp_path):  # type: ignore[no-untyped-def]
+    """A resident loop must end every tick with the connection idle — NOT
+    idle-in-transaction (found live 2026-08-17: a no-new-work tick held its read
+    txn open for hours, pinning vacuum xmin and wedging a projection rebuild's
+    ACCESS EXCLUSIVE, which then queued all later tick reads: full standstill)."""
+    from psycopg import pq
+    state = load_state(str(tmp_path / "supervisor.state.json"))
+    _tick(conn, k, tmp_path, state)                      # no new work: pure-read tick
+    assert conn.info.transaction_status == pq.TransactionStatus.IDLE
+    k.create_plan("p-txn", "kawa", "txn hygiene")
+    k.derive_work("w-txn", "p-txn", "implement")
+    _tick(conn, k, tmp_path, state, tick_no=2)           # surfacing tick
+    assert conn.info.transaction_status == pq.TransactionStatus.IDLE
