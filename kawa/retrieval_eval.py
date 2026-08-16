@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 import psycopg
 
-from kawa.retrieval import Intent, resolve_bindings, retrieve
+from kawa.retrieval import FLEET_SCOPES, Intent, resolve_bindings, retrieve
 
 CLASSES = ("anchor_lookup", "standing", "evidence", "neighborhood", "lexical")  # BC-3 canonical
 SAMPLINGS = ("failure_sourced", "cross_reference", "found")
@@ -241,7 +241,8 @@ def measure(conn: psycopg.Connection, corpus: dict, raw_bytes: bytes,
                         relation_depth=spec.get("relation_depth", 2),
                         limit=spec.get("limit", 50),
                         fallback_policy=spec.get("fallback_policy"))
-        bundle = retrieve(conn, intent, embedder)     # 11B: None => textual vector stated as skipped
+        # recall corpus is fleet/unscoped dogfood — the gate measures under fleet visibility
+        bundle = retrieve(conn, intent, embedder, viewer_scopes=FLEET_SCOPES)  # 11B: None => textual vector stated as skipped
         retrieved = {r.ref for recs in bundle.sections.values() for r in recs}
         anchor = bundle.plan.bound.anchor_ref
         rep = per_class[q["expected_class"]]

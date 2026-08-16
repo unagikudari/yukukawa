@@ -8,6 +8,7 @@ import pytest
 
 from kawa.application.services import Kawa
 from kawa.domain.identity import IdentityContext
+from kawa.retrieval import FLEET_SCOPES as FLEET
 from kawa.retrieval import Intent, compile_plan, resolve_bindings, retrieve
 
 psycopg = pytest.importorskip("psycopg")
@@ -52,9 +53,9 @@ def _claim_with_mixed_evidence(k, n_sup=3, n_con=3):  # type: ignore[no-untyped-
 
 def test_pure_ref_plans_no_fts(conn, k) -> None:  # type: ignore[no-untyped-def]
     c = k.record_claim("anchored")
-    plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id)))
+    plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id), viewer_scopes=FLEET))
     assert all(q.backend != "fts" for q in plan.query_classes)
-    bundle = retrieve(conn, Intent(about=c.event_id))
+    bundle = retrieve(conn, Intent(about=c.event_id), viewer_scopes=FLEET)
     assert bundle.fts_queries == []
 
 
@@ -62,7 +63,7 @@ def test_pure_ref_plans_no_fts(conn, k) -> None:  # type: ignore[no-untyped-def]
 
 def test_textual_intent_records_fts_provenance(conn, k) -> None:  # type: ignore[no-untyped-def]
     k.record_claim("the replication mesh is stable")
-    bundle = retrieve(conn, Intent(text_terms="replication mesh"))
+    bundle = retrieve(conn, Intent(text_terms="replication mesh"), viewer_scopes=FLEET)
     lex = [q for q in bundle.plan.query_classes if q.backend == "fts"]
     assert len(lex) == 1 and lex[0].fts_reason == "textual"
     assert len(bundle.fts_queries) == 1 and "textual" in bundle.fts_queries[0]
@@ -73,7 +74,7 @@ def test_textual_intent_records_fts_provenance(conn, k) -> None:  # type: ignore
 
 def test_multi_class_expansion_preserves_class_id(conn, k) -> None:  # type: ignore[no-untyped-def]
     claim = _claim_with_mixed_evidence(k)
-    bundle = retrieve(conn, Intent(about=claim.event_id))
+    bundle = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
     purposes = {q.purpose for q in bundle.plan.query_classes}
     assert {"anchor_lookup", "standing", "evidence", "neighborhood"} <= purposes
     assert len(bundle.sections) >= 2
@@ -87,8 +88,8 @@ def test_cycle_terminates_with_frontier_and_stable_output(conn, k) -> None:  # t
     a = k.record_claim("A"); b = k.record_claim("B")
     k.assert_link(a.event_id, "supports", b.event_id)
     k.assert_link(b.event_id, "supports", a.event_id)
-    b1 = retrieve(conn, Intent(about=a.event_id))
-    b2 = retrieve(conn, Intent(about=a.event_id))
+    b1 = retrieve(conn, Intent(about=a.event_id), viewer_scopes=FLEET)
+    b2 = retrieve(conn, Intent(about=a.event_id), viewer_scopes=FLEET)
     assert any(f.reason == "cycle" for f in b1.traversal_frontier)
     assert b1.sections == b2.sections and b1.traversal_frontier == b2.traversal_frontier
 
@@ -97,7 +98,7 @@ def test_cycle_terminates_with_frontier_and_stable_output(conn, k) -> None:  # t
 
 def test_row_cap_frontier_and_fair_share_no_confirmation_bias(conn, k) -> None:  # type: ignore[no-untyped-def]
     claim = _claim_with_mixed_evidence(k, n_sup=6, n_con=6)
-    bundle = retrieve(conn, Intent(about=claim.event_id, limit=8, relation_depth=1))
+    bundle = retrieve(conn, Intent(about=claim.event_id, limit=8, relation_depth=1), viewer_scopes=FLEET)
     ev = [s for cid, s in bundle.sections.items() if "evidence" in cid]
     assert ev, "evidence class must produce records"
     kinds = [r.path.split("<-")[1].split("-")[0] for r in ev[0]]
@@ -105,7 +106,7 @@ def test_row_cap_frontier_and_fair_share_no_confirmation_bias(conn, k) -> None: 
     assert any("contradicts" in r.path for r in ev[0])          # Lock 2: never dropped silently
     nb_frontier = [f for f in bundle.traversal_frontier if f.reason in ("row_cap", "depth_limit")]
     assert nb_frontier                                           # the cut is REPORTED
-    b2 = retrieve(conn, Intent(about=claim.event_id, limit=8, relation_depth=1))
+    b2 = retrieve(conn, Intent(about=claim.event_id, limit=8, relation_depth=1), viewer_scopes=FLEET)
     assert bundle.sections == b2.sections                        # deterministic under the cap
 
 
@@ -121,7 +122,7 @@ def test_unresolved_frontier_separate(conn, k) -> None:  # type: ignore[no-untyp
     ghost = "sha256:" + "f" * 64
     k.assert_link(claim.event_id, "based_on", ghost)                # target not held -> unresolved
 
-    bundle = retrieve(conn, Intent(about=claim.event_id))
+    bundle = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
     assert bundle.unresolved_frontier, "the dangling edge must be reported"
     assert {(f.source_node, f.relation, f.next_ref) for f in bundle.unresolved_frontier} == \
         {(claim.event_id, "based_on", ghost)}
@@ -136,7 +137,7 @@ def test_unresolved_frontier_separate(conn, k) -> None:  # type: ignore[no-untyp
 def test_fallback_policy_skips_lexical_when_structure_suffices(conn, k) -> None:  # type: ignore[no-untyped-def]
     claim = _claim_with_mixed_evidence(k, 2, 2)
     bundle = retrieve(conn, Intent(about=claim.event_id, text_terms="healthy",
-                                   fallback_policy=1))              # structure will exceed 1
+                                   fallback_policy=1), viewer_scopes=FLEET)              # structure will exceed 1
     assert bundle.fts_queries == []                                 # lexical did NOT fire
     assert bundle.skipped_classes and "threshold met" in bundle.skipped_classes[0]
 
@@ -144,7 +145,7 @@ def test_fallback_policy_skips_lexical_when_structure_suffices(conn, k) -> None:
 def test_fallback_policy_fires_lexical_on_underflow(conn, k) -> None:  # type: ignore[no-untyped-def]
     k.record_claim("the replication mesh is stable")
     bundle = retrieve(conn, Intent(text_terms="replication mesh",
-                                   fallback_policy=5))              # no anchor: structural total 0 < 5
+                                   fallback_policy=5), viewer_scopes=FLEET)              # no anchor: structural total 0 < 5
     lex = [q for q in bundle.plan.query_classes if q.backend == "fts"]
     assert lex and lex[0].fts_reason == "structured_underflow"
     assert len(bundle.fts_queries) == 1 and "structured_underflow" in bundle.fts_queries[0]
@@ -159,8 +160,8 @@ def test_path_truncation_deterministic(conn, k) -> None:  # type: ignore[no-unty
         nxt = k.record_claim(f"c{i}")
         k.assert_link(prev.event_id, "based_on", nxt.event_id)
         prev = nxt
-    b1 = retrieve(conn, Intent(about=first.event_id, relation_depth=11, limit=100))
-    b2 = retrieve(conn, Intent(about=first.event_id, relation_depth=11, limit=100))
+    b1 = retrieve(conn, Intent(about=first.event_id, relation_depth=11, limit=100), viewer_scopes=FLEET)
+    b2 = retrieve(conn, Intent(about=first.event_id, relation_depth=11, limit=100), viewer_scopes=FLEET)
     deep = [r for rs in b1.sections.values() for r in rs if r.path_truncated]
     assert deep, "beyond the edge budget, paths must truncate"
     assert b1.sections == b2.sections
@@ -195,7 +196,7 @@ def test_ask_harness_output(conn, k, monkeypatch, capsys) -> None:  # type: igno
 
 def test_standing_attached_verbatim_and_empty_classes_stated(conn, k) -> None:  # type: ignore[no-untyped-def]
     c = k.record_claim("lonely claim")                             # no links at all
-    bundle = retrieve(conn, Intent(about=c.event_id))
+    bundle = retrieve(conn, Intent(about=c.event_id), viewer_scopes=FLEET)
     anchor = bundle.sections["q0-anchor_lookup"][0]
     assert anchor.standing == "unevaluated"                        # verbatim from projection
     assert any("evidence" in e for e in bundle.empty_classes)      # ran empty, said so
@@ -215,10 +216,10 @@ def test_console_search_screen_renders_bundle(conn, k) -> None:  # type: ignore[
 
 def test_budget_apportionment_deterministic(conn, k) -> None:  # type: ignore[no-untyped-def]
     c = k.record_claim("x")
-    plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10)))
+    plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10), viewer_scopes=FLEET))
     budgets = [q.budget for q in plan.query_classes]
     assert sum(budgets) >= 10 and max(budgets) - min(budgets) <= 1   # floor split + remainder
-    plan2 = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10)))
+    plan2 = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10), viewer_scopes=FLEET))
     assert plan == plan2
 
 
@@ -235,9 +236,9 @@ def test_scope_restricted_anchor_does_not_bind(conn, k, k_restricted) -> None:  
     """An out-of-scope ref binds to nothing under default grants (not_found — existence is
     not disclosed), and binds normally once the scope is granted."""
     secret = k_restricted.record_claim("restricted proposition")
-    bound = resolve_bindings(conn, Intent(about=secret.event_id))
+    bound = resolve_bindings(conn, Intent(about=secret.event_id), viewer_scopes=FLEET)
     assert bound.anchor_kind is None and bound.anchor_ref is None
-    bundle = retrieve(conn, Intent(about=secret.event_id))
+    bundle = retrieve(conn, Intent(about=secret.event_id), viewer_scopes=FLEET)
     assert bundle.sections == {}                                   # nothing disclosed
     granted = retrieve(conn, Intent(about=secret.event_id),
                        viewer_scopes=frozenset({"fleet", "proj-restricted"}))
@@ -251,7 +252,7 @@ def test_scope_lexical_withholds_restricted_claims(conn, k, k_restricted) -> Non
     oracle over restricted propositions)."""
     k.record_claim("alpha finding shared")
     k_restricted.record_claim("alpha finding restricted")
-    bundle = retrieve(conn, Intent(text_terms="alpha finding"))
+    bundle = retrieve(conn, Intent(text_terms="alpha finding"), viewer_scopes=FLEET)
     summaries = [r.summary for rs in bundle.sections.values() for r in rs]
     assert "alpha finding shared" in summaries
     assert "alpha finding restricted" not in summaries
@@ -269,14 +270,14 @@ def test_scope_mixed_plan_shows_only_in_scope_revision(conn, k, k_restricted) ->
     the latest IN-SCOPE objective, never the unscoped projection)."""
     k.create_plan("plan-mixed", "proj", "public objective alpha")
     k_restricted.create_plan("plan-mixed", "proj", "secret objective omega")   # later revision
-    bundle = retrieve(conn, Intent(about="plan-mixed"))
+    bundle = retrieve(conn, Intent(about="plan-mixed"), viewer_scopes=FLEET)
     anchor = bundle.sections["q0-anchor_lookup"][0]
     assert "public objective alpha" in anchor.summary
     assert "omega" not in anchor.summary
-    fts = retrieve(conn, Intent(text_terms="objective alpha"))
+    fts = retrieve(conn, Intent(text_terms="objective alpha"), viewer_scopes=FLEET)
     fsum = [r.summary for rs in fts.sections.values() for r in rs]
     assert any("public objective alpha" in s for s in fsum)
-    fts_secret = retrieve(conn, Intent(text_terms="secret objective omega"))
+    fts_secret = retrieve(conn, Intent(text_terms="secret objective omega"), viewer_scopes=FLEET)
     assert all("omega" not in r.summary
                for rs in fts_secret.sections.values() for r in rs)
 
@@ -287,7 +288,7 @@ def test_scope_restricted_link_assertion_between_public_events_withheld(conn, k,
     a = k.record_claim("public claim A")
     b = k.record_claim("public claim B")
     k_restricted.assert_link(a.event_id, "supports", b.event_id)
-    bundle = retrieve(conn, Intent(about=b.event_id))
+    bundle = retrieve(conn, Intent(about=b.event_id), viewer_scopes=FLEET)
     refs = {r.ref for rs in bundle.sections.values() for r in rs}
     assert a.event_id not in refs                                  # edge not traversed
     assert sum(bundle.scope_withheld.values()) >= 1
@@ -306,7 +307,7 @@ def test_scope_evidence_and_neighborhood_withhold_without_leaking_refs(conn, k, 
     secret_obs = k_restricted.record_observation("secret_probe", value_bool=False, method="http_probe")
     k.assert_link(secret_obs.event_id, "contradicts", claim.event_id)
 
-    bundle = retrieve(conn, Intent(about=claim.event_id))
+    bundle = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
     refs = {r.ref for rs in bundle.sections.values() for r in rs}
     assert ok.event_id in refs
     assert secret_obs.event_id not in refs
@@ -330,7 +331,7 @@ def test_scope_unscoped_legacy_events_remain_visible(conn) -> None:  # type: ign
     legacy = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"),
                   default_scope=None)
     c = legacy.record_claim("legacy unscoped claim")
-    bundle = retrieve(conn, Intent(about=c.event_id))
+    bundle = retrieve(conn, Intent(about=c.event_id), viewer_scopes=FLEET)
     assert any(r.ref == c.event_id for rs in bundle.sections.values() for r in rs)
     assert not bundle.scope_withheld
 
@@ -340,6 +341,6 @@ def test_scope_filter_is_deterministic(conn, k, k_restricted) -> None:  # type: 
     for i in range(3):
         o = k_restricted.record_observation(f"sec_{i}", value_bool=True, method="http_probe")
         k.assert_link(o.event_id, "supports", claim.event_id)
-    b1 = retrieve(conn, Intent(about=claim.event_id))
-    b2 = retrieve(conn, Intent(about=claim.event_id))
+    b1 = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
+    b2 = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
     assert b1.sections == b2.sections and b1.scope_withheld == b2.scope_withheld

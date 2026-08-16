@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 
-from kawa.retrieval import Intent, retrieve
+from kawa.retrieval import FLEET_SCOPES, Intent, retrieve
 from kawa.storage.db import connect
 
 
@@ -29,7 +29,7 @@ def main() -> int:
     args = ap.parse_args()
 
     conn = connect()
-    scopes = frozenset(args.scope) if args.scope else frozenset({"fleet"})
+    scopes = frozenset(args.scope) if args.scope else FLEET_SCOPES
     bundle = retrieve(conn, Intent(about=args.about, text_terms=args.text,
                                    relation_depth=args.depth, limit=args.limit),
                       viewer_scopes=scopes)
