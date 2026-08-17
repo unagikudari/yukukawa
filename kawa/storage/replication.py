@@ -40,9 +40,11 @@ class TemporalPolicy:
     skew of the receiver's clock — before it may influence ordering or advance the local HLC.
 
     `max_forward_skew_ms` is deployment/security-profile POLICY, never a Core constant: the
-    default follows the transport freshness precedent (60s, replication_http) and blocks the
-    ADV-01 result-pinning attack while bounding honest-clock-drift pollution to one minute.
-    Deployments tighten or relax it without touching Core.
+    default follows the transport freshness precedent (60s, replication_http) and blocks
+    FAR-future ADV-01 result-pinning. Stated honestly: the bound is also an ADVERSARIAL pin
+    budget — a malicious trusted emitter can stamp now+59s and transiently win causal-order
+    tiebreaks inside the window (HLC stays an ordering hint, never authority — S6; a tighter
+    profile shrinks the budget). Deployments tighten or relax it without touching Core.
 
     Rejection here is DEFERRAL, not a standing change (#142 fold, rule 3): the event and its
     successors are refused THIS pull (contiguity is structural), nothing is frozen, no trust

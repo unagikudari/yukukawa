@@ -108,11 +108,16 @@ def parse_hlc(hlc: str) -> tuple[int, int, str] | None:
     parts = hlc.split(".", 2)
     if len(parts) != 3 or not parts[2]:
         return None
-    try:
-        phys, logical = int(parts[0]), int(parts[1])
-    except ValueError:
+    # ASCII-decimal-only, both numeric fields: Python int() accepts a SUPERSET of the
+    # Postgres bigint text domain (Unicode digits, underscores via literals, etc.) —
+    # review of #145 found "١٢٣.0.node" passing int() then aborting the admission
+    # INSERT at ::bigint, converting per-origin deferral into a batch-wide exception.
+    # The admissibility predicate must be at least as strict as what the store commits to.
+    if not (parts[0].isascii() and parts[0].isdigit()
+            and parts[1].isascii() and parts[1].isdigit()):
         return None
-    if phys < 0 or logical < 0:
+    phys, logical = int(parts[0]), int(parts[1])
+    if phys > 2**63 - 1 or logical > 2**63 - 1:      # signed-64-bit: the bigint domain
         return None
     return phys, logical, parts[2]
 

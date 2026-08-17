@@ -323,3 +323,19 @@ def test_forward_skew_bound_is_profile_policy(conn_a, conn_b, node_a, tmp_path) 
     assert [r.reason for r in tight.rejected] == ["hlc_forward_skew"]
     default = admit_batch(conn_b, [slightly_ahead], keys=keys, trust=trust, now_ms=now)
     assert len(default.admitted) == 1                   # 30s ahead is inside the 60s default
+
+
+def test_gate_is_at_least_as_strict_as_the_bigint_store_domain(conn_a, conn_b, node_a, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Review finding on #145: Python int() accepts a superset of Postgres ::bigint text —
+    Unicode digits and >2^63 logical fields passed the gate then ABORTED the admission
+    INSERT, turning per-origin deferral into a batch-wide exception that rolled back
+    co-batched honest origins. The predicate must match the store's domain."""
+    kawa, cred, keys, trust = node_a
+    now = int(time.time() * 1000)
+    for bad_hlc in ("١٢٣.0.node-a",                                  # Unicode digits, small value
+                    f"{now}.99999999999999999999999.node-a",          # logical > 2^63-1
+                    f"{now}.١.node-a"):                               # Unicode logical
+        e = _stamped("node-a", 1, None, cred, bad_hlc)
+        report = admit_batch(conn_b, [e], keys=keys, trust=trust, now_ms=now)
+        assert [r.reason for r in report.rejected] == ["hlc_malformed"], bad_hlc
+        assert report.admitted == []
