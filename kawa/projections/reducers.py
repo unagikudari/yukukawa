@@ -147,6 +147,29 @@ def recompute_work_state(cur: psycopg.Cursor, work_ref: str, event_id: str) -> N
         _recompute_readiness(cur, work_ref, event_id)
 
 
+def _propagate_to_dependents(cur: psycopg.Cursor, work_ref: str, event_id: str) -> None:
+    """The dependency-plane half of the fold (#166 review F1/F2): resolve every edge that
+    depends on `work_ref` FROM THE FACT SET (retirement fact dominates; else the latest
+    non-quarantined Result), then recompute each dependent THROUGH THE FOLD — never via a
+    bare readiness write, which would clobber a dependent's own result-derived execution
+    back to ready/blocked (the resurrection symptom, dependency-plane edition)."""
+    cur.execute("SELECT 1 FROM event_work_retired WHERE work_ref = %s LIMIT 1", (work_ref,))
+    if cur.fetchone() is not None:
+        cur.execute(
+            "UPDATE current_work_dependency SET dependency_state='retired', "
+            "updated_at=clock_timestamp() WHERE dependency_work_ref=%s",
+            (work_ref,),
+        )
+    else:
+        _apply_latest_result_to_dependents(cur, work_ref, event_id)
+    cur.execute(
+        "SELECT DISTINCT work_ref FROM current_work_dependency WHERE dependency_work_ref=%s",
+        (work_ref,),
+    )
+    for (dependent_ref,) in cur.fetchall():
+        recompute_work_state(cur, dependent_ref, event_id)
+
+
 def recompute_plan_state(cur: psycopg.Cursor, plan_ref: str, event_id: str) -> None:
     """The ONE plan-row writer (#166): descriptive fields from the latest plan.created,
     lifecycle/end_reason from the latest lifecycle-bearing fact — both in the strict total
@@ -191,11 +214,12 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
             (p.work_ref, p.dependency_work_ref, p.satisfaction_policy),
         )
         # #102 round-2 constraint 1: a NEW dependency on an already-retired Work resolves to
-        # 'retired' immediately — past Results are irrelevant (retirement dominates), and
-        # without this the edge would hang at 'pending' forever or resurrect via old Results.
-        cur.execute("SELECT execution FROM current_work WHERE work_ref=%s", (p.dependency_work_ref,))
-        row = cur.fetchone()
-        if row is not None and row[0] == "retired":
+        # 'retired' immediately. #166 review F2: the check reads the FACT SET
+        # (event_work_retired), never the projection row — the dependency work's derive may
+        # not have arrived yet, and its absence must not hide a held retirement fact.
+        cur.execute("SELECT 1 FROM event_work_retired WHERE work_ref = %s LIMIT 1",
+                    (p.dependency_work_ref,))
+        if cur.fetchone() is not None:
             cur.execute(
                 "UPDATE current_work_dependency SET dependency_state='retired', "
                 "updated_at=clock_timestamp() WHERE work_ref=%s AND dependency_work_ref=%s",
@@ -206,7 +230,8 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
             # same predicate the Result path applies — never deadlocks at 'pending'.
             _apply_latest_result_to_dependents(cur, p.dependency_work_ref, event.event_id,
                                                only_dependent=p.work_ref)
-        _recompute_readiness(cur, p.work_ref, event.event_id)
+        recompute_work_state(cur, p.work_ref, event.event_id)   # F1: through the fold, never
+        # a bare readiness write — a dependent with its own Result keeps that execution
     elif isinstance(p, ResultRecorded):
         # Both the work's own state and its dependents' dependency_state follow the LATEST
         # Result (pure predicate — replay-order independent even for late-arriving results).
@@ -217,29 +242,13 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
         if p.occurrence_key is not None:
             _requarantine_occurrence(cur, p.work_ref, p.occurrence_key)
         recompute_work_state(cur, p.work_ref, event.event_id)     # #166: own row via the fold
-        _apply_latest_result_to_dependents(cur, p.work_ref, event.event_id)
-        cur.execute(
-            "SELECT DISTINCT work_ref FROM current_work_dependency WHERE dependency_work_ref=%s",
-            (p.work_ref,),
-        )
-        for (dependent_ref,) in cur.fetchall():
-            _recompute_readiness(cur, dependent_ref, event.event_id)
+        _propagate_to_dependents(cur, p.work_ref, event.event_id)
     elif isinstance(p, WorkRetired):
         # Terminal for the Work identity: the fold makes retirement dominate in EVERY
         # arrival order — including retire-before-derive, where the fact waits in
         # event_work_retired and folds in when the derive arrives (#166).
         recompute_work_state(cur, p.work_ref, event.event_id)
-        cur.execute(
-            "UPDATE current_work_dependency SET dependency_state='retired', "
-            "updated_at=clock_timestamp() WHERE dependency_work_ref=%s",
-            (p.work_ref,),
-        )
-        cur.execute(
-            "SELECT DISTINCT work_ref FROM current_work_dependency WHERE dependency_work_ref=%s",
-            (p.work_ref,),
-        )
-        for (dependent_ref,) in cur.fetchall():
-            _recompute_readiness(cur, dependent_ref, event.event_id)
+        _propagate_to_dependents(cur, p.work_ref, event.event_id)
     elif isinstance(p, LinkAsserted):
         # projection row; dedup key = the triple, first asserter kept for attribution
         cur.execute(
@@ -353,6 +362,9 @@ def _recompute_standing(cur: psycopg.Cursor, latest_event_id: str) -> None:
 
 
 def _recompute_readiness(cur: psycopg.Cursor, work_ref: str, event_id: str) -> None:
+    """PRIVATE to recompute_work_state (#166 review F1): the ONLY legal caller is the
+    fold's no-result/no-retirement branch. Called anywhere else it clobbers a
+    result-derived execution back to ready/blocked — the dependency-plane resurrection."""
     cur.execute(
         "SELECT satisfaction_policy, dependency_state FROM current_work_dependency WHERE work_ref=%s",
         (work_ref,),

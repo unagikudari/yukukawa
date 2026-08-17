@@ -155,3 +155,106 @@ def test_real_episode_wb_p2_converges_including_origin_block_order(conn) -> None
     }
     for name, order in orderings.items():
         assert _replay(conn, order) == expected, name
+# appended to tests/test_confluence.py by the build step — kept separate for review clarity
+
+
+def _admit_seq(conn, events):  # type: ignore[no-untyped-def]
+    """ADMISSION-order harness (#166 review F3): unlike _replay (which replays over a
+    pre-populated fact set), this starts from an EMPTY store and applies each event the
+    way admission does — envelope row, then payload row, then reduce — so the fold's
+    derive-not-yet-held branches and fact-set lookbacks are exercised for real."""
+    from kawa.storage.emit import _insert_payload
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE events, event_content, event_plan, event_work, "
+                    "event_work_dependency, event_result, event_link, event_observation, "
+                    "event_claim, event_work_retired, " + _PROJECTIONS)
+        for e in events:
+            cur.execute(
+                "INSERT INTO events (event_id, origin_node, origin_seq, hlc, kind, "
+                "subject_ref, actor_ref, policy_digest, payload_digest, prev_hash, "
+                "self_hash, envelope_version, scope_ref, scope_digest, materialized) "
+                "VALUES (%s,%s,%s,%s,%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,true)",
+                (e.event_id, e.origin_node, e.origin_seq, e.hlc, e.kind.value,
+                 e.subject_ref, e.actor_ref, e.policy_digest, e.payload_digest,
+                 e.prev_hash, e.self_hash, e.envelope_version, e.scope_ref, e.scope_digest),
+            )
+            _insert_payload(cur, e)
+            reduce(cur, e)
+        cur.execute("SELECT work_ref, execution FROM current_work ORDER BY work_ref")
+        work = cur.fetchall()
+        cur.execute("SELECT plan_ref, lifecycle, end_reason FROM current_plans ORDER BY plan_ref")
+        plans = cur.fetchall()
+        cur.execute("SELECT work_ref, dependency_work_ref, dependency_state "
+                    "FROM current_work_dependency ORDER BY 1, 2")
+        deps = cur.fetchall()
+    conn.commit()
+    return {"work": work, "plans": plans, "deps": deps}
+
+
+def _origin_interleavings(events):  # type: ignore[no-untyped-def]
+    """All admission-legal delivery orders: every interleaving of the per-origin streams
+    (per-origin order fixed by the chains)."""
+    from itertools import permutations as _perms
+    streams: dict[str, list] = {}
+    for e in events:
+        streams.setdefault(e.origin_node, []).append(e)
+    for s in streams.values():
+        s.sort(key=lambda e: e.origin_seq)
+    keys = list(streams)
+    tokens = [k for k in keys for _ in streams[k]]
+    seen = set()
+    for perm in _perms(tokens):
+        if perm in seen:
+            continue
+        seen.add(perm)
+        cursors = {k: 0 for k in keys}
+        order = []
+        for k in perm:
+            order.append(streams[k][cursors[k]])
+            cursors[k] += 1
+        yield perm, order
+
+
+def test_dependent_with_own_result_survives_parent_cascade(conn) -> None:  # type: ignore[no-untyped-def]
+    """Review F1 counterexample, pinned: child finishes, THEN the parent's result fires the
+    dependent cascade — the child must stay finished (never revert to ready with a fresh
+    ready_at), in both result orders."""
+    k = _runtime(conn, "origin-a")
+    k.create_plan("p-x", "kawa", "cascade")
+    k.derive_work("w-parent", "p-x", "implement")
+    k.derive_work("w-child", "p-x", "implement")
+    k.declare_dependency("w-child", "w-parent", "ALL")
+    k.record_result("w-child", "success", "r-child")
+    k.record_result("w-parent", "success", "r-parent")
+    events = load_events(conn)
+    results = [e for e in events if e.kind.value == "result.recorded"]
+    fixed = [e for e in events if e not in results]
+    for perm in permutations(results):
+        snap = _replay(conn, fixed + list(perm))
+        assert dict(snap["work"]) == {"w-parent": "finished", "w-child": "finished"}, \
+            [e.event_id[:16] for e in perm]
+
+
+def test_per_origin_block_admission_converges_with_retired_dependency(conn) -> None:  # type: ignore[no-untyped-def]
+    """Review F2 counterexample, pinned at ADMISSION level: three origins, the adjudicating
+    origin (result+retire of the parent) delivered FIRST — the declare must read the
+    retirement FACT (its projection row does not exist yet) and every admission-legal
+    interleaving must converge to edge 'retired', child 'blocked'."""
+    kt = _runtime(conn, "zz-test")
+    km = _runtime(conn, "cc-mid")
+    ka = _runtime(conn, "aa-prod")
+    kt.create_plan("p-b", "kawa", "block-order")
+    kt.derive_work("w-p", "p-b", "implement")
+    km.derive_work("w-c", "p-b", "implement")
+    km.declare_dependency("w-c", "w-p", "ALL")
+    ka.record_result("w-p", "success", "r-p")
+    ka.retire_work("w-p", "obsolete")
+    events = load_events(conn)
+    expected = _admit_seq(conn, events)       # application order = ground truth
+    assert dict(expected["work"]) == {"w-p": "retired", "w-c": "blocked"}
+    assert expected["deps"] == [("w-c", "w-p", "retired")]
+    checked = 0
+    for perm, order in _origin_interleavings(events):
+        assert _admit_seq(conn, order) == expected, perm
+        checked += 1
+    assert checked == 90                      # 6!/(2!·2!·2!) interleavings, all covered
