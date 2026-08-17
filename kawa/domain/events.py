@@ -222,6 +222,17 @@ class AuthorityConfiguration(_Payload):
     prior_configuration_digest: str | None = None
     succession_proof: str | None = None  # canonical-json {signer_set:[key_ref], signatures:[hex]}
 
+    @model_validator(mode="after")
+    def _unique_members(self) -> "AuthorityConfiguration":
+        # #149 (ADV-05): members is a SET with a quorum rule. Duplicates make _bound's
+        # quorum ceiling lie against _valid_signers' distinct-signer count — a
+        # [A,A,A]/quorum-3 Cell verifies as bound yet can never exercise (permanent
+        # deadlock) and misrepresents its threshold. Rejected at the model, so no
+        # such payload can be emitted; verification treats them as non-conforming.
+        if len(set(self.members)) != len(self.members):
+            raise ValueError("duplicate member refs — a configuration's members are a set")
+        return self
+
 
 class AuthorityReceipt(_Payload):
     """A CP operation's acceptance — a committed Event carrying a quorum proof (slab §5).
