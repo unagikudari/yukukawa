@@ -418,9 +418,14 @@ def _authority_genesis_watch(cur: psycopg.Cursor, e: Event, keys: PublicKeyRegis
     origin's gap-free stream and grief the whole origin — a worse outcome than the one
     BC-1 exists to prevent), but its facial validity is judged HERE, loudly:
 
-      - an unproven genesis (no founding-quorum signatures) is REPORTED as
-        `authority_genesis_unproven` — it is admitted history that the verifier will
-        never count (noise, per the PR-2 facially-valid rule); a stranger gains nothing.
+      - an unproven genesis (missing ANY founding member's signature — the #164
+        unanimity reading) is REPORTED as `authority_genesis_unproven` — admitted
+        history the verifier will never count (noise, per the PR-2 facially-valid
+        rule); a stranger gains nothing. Known asymmetry (#164 review F2, follow-up
+        filed): the conflict query below checks stored epoch-0 rows WITHOUT
+        re-judging their facial validity, so noise that arrived BEFORE a legitimate
+        genesis can still mint a false durable conflict record at admission even
+        though the verifier resolves it correctly.
       - a SECOND facially-valid genesis for a held key is the rev-2 (b) administrative
         conflict: recorded durably in `security_authority_conflict` and reported —
         BOTH lines stay blocked at verify time, no last-wins, no second live Cell.

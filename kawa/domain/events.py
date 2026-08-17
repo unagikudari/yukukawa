@@ -208,8 +208,9 @@ class AuthorityConfiguration(_Payload):
     signatures as the succession proof (BC-1, the #164 unanimity reading: founding is
     one-shot unanimous — nobody is conscripted into an accountable signer pool without
     signing the statement; quorum governs operation/succession, never creation. An
-    unsigned or partially-signed genesis is verifier noise, so a stranger cannot grief
-    an existing Cell into `authority_genesis_conflict`). A successor
+    unsigned or partially-signed genesis is verifier noise — though the admission-time
+    conflict watch has a known arrival-order asymmetry, see the #164-review note in
+    replication._authority_genesis_watch). A successor
     carries the PARENT quorum's signatures over `configuration_digest`, and Phase-0
     succession must preserve the member set exactly (BC-4 — membership change is a named
     future addendum). Replicated like all history: verifiers fetch the chain, never a
