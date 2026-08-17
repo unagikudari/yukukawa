@@ -163,6 +163,9 @@ def run_tick(conn, *, kawa: Kawa, node_ref: str, state: dict, status_file: str,
              policy_dgst: str, now_fn=_now) -> dict:
     """One tick against an open connection. Factored for the test suite — main()
     wraps it with connect(), the watchdog ping, and the loud exit code."""
+    from kawa.projections.console_rollup import refresh_console_projections
+    refresh_console_projections(conn)
+    conn.commit()   # console projections fresh each tick; bounded write txn, released NOW
     ready = read_ready(conn)
     conn.commit()   # release the read txn NOW — a resident loop must never sit
     # idle-in-transaction between ticks (found live 2026-08-17: a no-new-work tick

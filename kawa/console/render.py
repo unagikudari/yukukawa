@@ -24,6 +24,100 @@ _EXEC = {
 
 # ---- screens: each returns the inner HTML for its page (read-only) ----
 
+# situation/fleet state -> css class. Five dimensions, four+1 states — never merged.
+_DIM_CLS = {"OK": "ok", "ATTENTION": "warn", "CRIT": "crit", "UNKNOWN": "unk",
+            "INCOMPLETE": "inc"}
+_DIM_ORDER = ("AUTHORITY", "EXECUTION", "EPISTEMIC", "HEALTH_REACH", "PROJECTION_FRESHNESS")
+_DIM_LABEL = {"AUTHORITY": "Authority", "EXECUTION": "Execution", "EPISTEMIC": "Epistemic",
+              "HEALTH_REACH": "Health / Reach", "PROJECTION_FRESHNESS": "Projection freshness"}
+
+
+def _screen_situation(conn: psycopg.Connection) -> str:
+    """The landing sweep (screen-map §1): five dimension cards from situation_rollup —
+    each its own card with its own freshness; no combined health exists to render."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT dimension, state, gap, count_total, count_nongreen, residue, "
+                    "source_projection, as_of FROM situation_rollup")
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+    if not rows:
+        return ('<section class="card"><h2>Situation</h2><p class="obj">situation_rollup is '
+                'empty — no refresh has run yet (rebuild or the supervisor populates it). '
+                'Nothing is invented in its place.</p></section>')
+    cards = []
+    missing = [d for d in _DIM_ORDER if d not in rows]
+    for dim in _DIM_ORDER:
+        if dim not in rows:                                # partial rollup: absence is stated,
+            continue                                       # never painted over with a state
+        state, gap, total, nongreen, residue, src, as_of = rows[dim]
+        cls = _DIM_CLS.get(state, "mut")
+        body = []
+        if gap:                                            # INCOMPLETE: named gap, never a spinner
+            body.append(f'<p class="obj">gap: {html.escape(gap)}</p>')
+        if total is not None:
+            body.append(f'<p class="num">{nongreen}<span class="den">/{total} non-green</span></p>')
+        if residue:                                        # counts travel WITH their residue
+            body.append(f'<p class="obj resid">{html.escape(residue)}</p>')
+        cards.append(
+            f'<section class="card dim"><h2>{html.escape(_DIM_LABEL[dim])} '
+            f'<span class="st {cls}">{html.escape(state)}</span></h2>'
+            + "".join(body)
+            + f'<p class="asof">from {html.escape(src)} · as-of {html.escape(str(as_of)[:19])}</p>'
+            '</section>')
+    head = ""
+    if missing:
+        head = ('<section class="card"><p class="obj">situation_rollup holds no row for: '
+                + html.escape(", ".join(missing))
+                + ' — refresh incomplete; nothing is invented in its place.</p></section>')
+    return head + '<div class="cards">' + "".join(cards) + "</div>"
+
+
+def _screen_fleet(conn: psycopg.Connection) -> str:
+    """Per-node, per-dimension chips (screen-map §4). A node is never one light.
+    STALE is derived HERE, at render: measured reachability=CRIT makes sibling
+    cells STALE (their stored, still-measured values shown as stale freshness),
+    while UNKNOWN reachability stales nothing."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT node_ref, reachability, reachability_source, reachability_as_of, "
+                    "workload, workload_detail, workload_as_of, "
+                    "replication, replication_lag, replication_as_of, "
+                    "last_origin_seq, last_event_at, updated_at "
+                    "FROM fleet_node ORDER BY node_ref")
+        rows = cur.fetchall()
+    if not rows:
+        return ('<section class="card"><h2>Fleet</h2><p class="obj">fleet_node is empty — '
+                'no refresh has run yet. Nothing is invented in its place.</p></section>')
+
+    def chip(label: str, state: str, as_of, extra: str = "", stale: bool = False) -> str:
+        if stale and state != "UNKNOWN":
+            # freshness statement, not a health verdict: the measured value is shown, marked stale
+            asof = f' · {html.escape(str(as_of)[:19])}' if as_of else ""
+            return (f'<span class="st stale">{html.escape(label)} STALE '
+                    f'(last {html.escape(state)}{extra}{asof})</span>')
+        cls = {"OK": "ok", "ATTENTION": "warn", "CRIT": "crit", "CURRENT": "ok",
+               "LAGGING": "warn", "UNKNOWN": "unk"}.get(state, "mut")
+        asof = f' · {html.escape(str(as_of)[:19])}' if as_of else ""
+        return f'<span class="st {cls}">{html.escape(label)} {html.escape(state)}{extra}{asof}</span>'
+
+    out = ['<section class="card"><p class="obj">per-node × per-dimension — online ≠ workload '
+           'healthy ≠ replication current. attestation / trust / cell / quorum: deferred with '
+           'their read-models (no cell is invented). UNKNOWN = no admissible source event yet.</p>'
+           '<div class="work">']
+    for (node, rch, rch_src, rch_at, wkl, wkl_d, wkl_at,
+         rep, rep_lag, rep_at, seq, last_at, upd) in rows:
+        siblings_stale = rch == "CRIT"                    # the ONLY stale trigger (never UNKNOWN)
+        chips = [
+            chip("RCH", rch, rch_at, f' ({html.escape(rch_src)})' if rch_src else ""),
+            chip("WKL", wkl, wkl_at, f' ({html.escape(wkl_d)})' if wkl_d else "", stale=siblings_stale),
+            chip("REP", rep, rep_at, f' lag={rep_lag}' if rep_lag is not None else "", stale=siblings_stale),
+        ]
+        out.append(f'<div class="wi fleet"><span class="wr">{html.escape(node)}</span>'
+                   f'<span class="meta">seq {seq} · last event {html.escape(str(last_at)[:19])}</span>'
+                   f'<span class="chips">{"".join(chips)}</span></div>')
+    out.append(f'</div><p class="asof">as-of {html.escape(str(rows[0][12])[:19])} · '
+               'refreshed by rebuild / supervisor tick</p></section>')
+    return "\n".join(out)
+
+
 def _screen_route(conn: psycopg.Connection) -> str:
     with conn.cursor() as cur:
         cur.execute("SELECT plan_ref, objective, lifecycle FROM current_plans ORDER BY plan_ref")
@@ -177,11 +271,12 @@ def _screen_archive(conn: psycopg.Connection) -> str:
 
 
 SCREENS = [
-    ("/", "Route", _screen_route, True),
+    ("/", "Situation", _screen_situation, True),
+    ("/route", "Route", _screen_route, True),
+    ("/fleet", "Fleet", _screen_fleet, True),
     ("/dispatch", "Dispatch", _screen_dispatch, True),
     ("/search", "Search", _screen_search, True),
     ("/archive", "Archive", _screen_archive, True),
-    ("/fleet", "Fleet", _screen_planned, False),
     ("/graph", "Graph", _screen_planned, False),
     ("/authority", "Authority", _screen_planned, False),
 ]
@@ -189,9 +284,14 @@ _BY_PATH = {p: (label, fn, impl) for p, label, fn, impl in SCREENS}
 
 
 def _header_stats(conn: psycopg.Connection):
+    """Shell tallies from projections ONLY (w-console3 constraint: screens never read
+    raw event tables). The event tally is the fleet ledger position — sum of per-origin
+    last_origin_seq from fleet_node — shown as absence ('—') until a refresh has run."""
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM events")
+        cur.execute("SELECT sum(last_origin_seq) FROM fleet_node")
         events = cur.fetchone()[0]
+        if events is None:
+            events = "—"
         cur.execute("SELECT count(*) FROM current_plans")
         nplans = cur.fetchone()[0]
         cur.execute("SELECT count(*) FROM current_work")
@@ -241,7 +341,7 @@ def render(conn: psycopg.Connection, path: str = "/", query: dict | None = None,
 
 
 def render_page(conn: psycopg.Connection) -> str:
-    """Back-compatible entry: the default (Route) screen."""
+    """Back-compatible entry: the landing screen (Situation — screen-map §1's sweep)."""
     return render(conn, "/")  # type: ignore[return-value]
 
 
@@ -284,6 +384,18 @@ border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .st.inc{{color:#CBB6F5;border-color:var(--inc);background:repeating-linear-gradient(45deg,rgba(163,113,247,.20),rgba(163,113,247,.20) 3px,transparent 3px,transparent 7px)}}
 .st.done{{color:var(--done);border-color:var(--done);background:rgba(45,212,191,.10)}}
 .st.mut{{color:var(--mut);border-color:var(--bd)}}
+/* UNKNOWN = absence-of-evidence: neutral, DASHED — never green, never red */
+.st.unk{{color:var(--mut);border:1px dashed var(--mut);background:transparent}}
+/* STALE = a freshness statement (render-derived from reachability CRIT), not a verdict */
+.st.stale{{color:var(--mut);border:1px solid var(--bd);background:repeating-linear-gradient(-45deg,rgba(139,148,158,.12),rgba(139,148,158,.12) 3px,transparent 3px,transparent 7px);font-style:italic}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}}
+.card.dim h2{{display:flex;justify-content:space-between;align-items:center;gap:8px}}
+.num{{font-size:22px;margin:6px 0 2px;font-family:ui-monospace,monospace}}
+.num .den{{font-size:11px;color:var(--mut);margin-left:4px}}
+.resid{{word-break:break-all}}
+.asof{{margin:8px 0 0;color:var(--mut);font-size:10px;font-family:ui-monospace,monospace}}
+.wi.fleet{{grid-template-columns:120px 1fr;grid-auto-rows:auto}}
+.chips{{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;justify-self:start;padding:2px 0 4px}}
 .conf{{color:var(--crit)}}.mut{{color:var(--mut)}}
 table.disp{{width:100%;border-collapse:collapse;font-size:12px}}
 table.disp th{{text-align:left;color:var(--mut);font-weight:500;padding:3px 6px;border-bottom:1px solid var(--bd)}}

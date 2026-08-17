@@ -23,7 +23,8 @@ psycopg = pytest.importorskip("psycopg")
 _ALL = (
     "content_embedding, event_content, events, event_links, event_link, event_observation, event_claim, event_plan, "
     "event_work, event_work_dependency, event_work_retired, event_result, current_claim_standing, "
-    "current_plans, current_work, current_work_dependency, runtime_work_occupancy"
+    "current_plans, current_work, current_work_dependency, runtime_work_occupancy, "
+    "situation_rollup, fleet_node, evidence_provenance, projection_state"
 )
 
 
@@ -166,14 +167,14 @@ def test_agent_replacement_resumes_from_kawa_state(conn) -> None:  # type: ignor
 def test_console_renders_from_live_projections(conn) -> None:  # type: ignore[no-untyped-def]
     """Phase 3: the Console renders from LIVE projections, never a static snapshot — a change is
     reflected on the next render."""
-    from kawa.console.render import render_page
+    from kawa.console.render import render
     k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("pc", "kawa", "console")
     k.derive_work("wc", "pc", "implement", role_requirement="Implementer")
-    page1 = render_page(conn)
+    page1 = render(conn, "/route")
     assert "pc" in page1 and "wc" in page1 and "READY" in page1   # live current_work.execution='ready'
     k.record_result("wc", "success", "r-wc")                     # change the live state
-    page2 = render_page(conn)
+    page2 = render(conn, "/route")
     assert "finished" in page2 and page2 != page1                # re-read reflects it (no snapshot)
 
 
@@ -181,7 +182,6 @@ def test_console_shows_dispatch_from_live_work_dispatch(conn) -> None:  # type: 
     """Phase 3: the Runtime & Dispatch section renders from live work_dispatch (how Work was routed
     to runtimes/lanes)."""
     from kawa.adapters import broker_bridge as bridge
-    from kawa.console.render import render_page
     k = Kawa(conn, identity=IdentityContext.from_local_runtime(node_ref="test", actor_ref="pytest"))
     k.create_plan("pd", "kawa", "dispatch")
     k.derive_work("wd", "pd", "review", role_requirement="Reviewer")
@@ -202,8 +202,10 @@ def test_console_shared_sidebar_and_routing(conn) -> None:  # type: ignore[no-un
         assert 'href="/"' in page and 'href="/dispatch"' in page and 'href="/fleet"' in page
     assert 'class="nav-item active" href="/"' in route            # active highlight differs per page
     assert 'class="nav-item active" href="/dispatch"' in disp
-    fleet = render(conn, "/fleet")                                # designed-but-not-implemented
-    assert fleet is not None and "not implemented" in fleet and "planned" in route
+    fleet = render(conn, "/fleet")                                # implemented (phase-1 step 3)
+    assert fleet is not None and "fleet_node is empty" in fleet   # honest empty, nothing invented
+    graph = render(conn, "/graph")                                # designed-but-not-implemented
+    assert graph is not None and "not implemented" in graph and "planned" in route
     assert render(conn, "/nope") is None                          # unknown path -> 404
 
 
