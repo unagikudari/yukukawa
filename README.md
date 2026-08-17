@@ -41,6 +41,7 @@ The next participant does not need the original chat transcript to become useful
 - **Do not treat authentication as permission.** Identity, capability, approval, and execution authority are separate.
 - **Do not treat “I ran it” as proof.** Intent, execution, and recorded post-action Observations are separate.
 - **Keep working through partitions.** Divergent histories are preserved and reconciled rather than silently overwritten.
+- **Evidence without exposure.** Records bind to sources by digest, never by copying — credentials authenticate collection but never enter the durable record.
 - **Inspect what an LLM retrieved before acting.** Semantic Retrieval is designed to keep relevance, freshness, epistemic standing, and selection distinct.
 
 The deeper architecture exists to keep those promises under replacement, failure, disagreement, and partition.
