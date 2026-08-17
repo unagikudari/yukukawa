@@ -545,5 +545,9 @@ def rebuild(conn: psycopg.Connection) -> int:
             continue        # same predicate as admission (#113 9a): stubs verify, never reduce
         with conn.cursor() as cur:
             reduce(cur, event)
+    # console projections are refresh-derived aggregates over the log and the
+    # projections replayed above — recompute them as part of the same rebuild
+    from kawa.projections.console_rollup import refresh_console_projections
+    refresh_console_projections(conn)
     conn.commit()
     return len(events)

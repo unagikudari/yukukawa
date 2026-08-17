@@ -99,7 +99,7 @@
 - **Column bindings (RESOLVED — phase 1; ATT/TRU/CEL/QRM deferred with their read-models):**
   - node identity ← `fleet_node.node_ref` (sourced from `DISTINCT events.origin_node`)
   - RCH ← `fleet_node.reachability` — **NO-SOURCE today → UNKNOWN**; `reachability_source` is NULL iff UNKNOWN (CHECK), so a future real source must be named or the write fails
-  - WKL ← `fleet_node.workload` + `workload_detail` (from `runtime_work_occupancy` + `work_dispatch`)
+  - WKL ← `fleet_node.workload` — **NO-SOURCE for per-node attribution today → UNKNOWN** (occupancy/dispatch carry agent strings, not a typed node ref; prefix-parsing would invent the mapping)
   - REP ← `fleet_node.replication` + `replication_lag` — no replica registered ⇒ UNKNOWN, never CURRENT
   - ATT / TRU / CEL / QRM ← **deferred** (Authority/Proof & Cell read-models absent; no column exists, so no cell can be invented — #181 rev 2)
   - per-cell freshness ← `fleet_node.reachability_as_of / workload_as_of / replication_as_of`; 'STALE' is render-derived from reachability=CRIT and is unstorable (CHECK)

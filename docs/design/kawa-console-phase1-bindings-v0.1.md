@@ -39,7 +39,7 @@ names which one per row); it holds no truth and no combined field exists.
 |---|---|---|
 | node identity | `DISTINCT events.origin_node` (live: `local`, `panoplia`, `test`) | real |
 | reachability (RCH) | **NO-SOURCE → UNKNOWN.** No reachability event kind exists. `fleet_node.reachability_source` is NULL iff UNKNOWN (CHECK-enforced), so the day a real source event lands it must be named or the write fails | UNKNOWN for every node |
-| workload (WKL) | `runtime_work_occupancy` (occupied work per runtime) + `work_dispatch.dispatch_state` non-terminal counts | measurable today |
+| workload (WKL) | **NO-SOURCE for per-NODE attribution → UNKNOWN.** `runtime_work_occupancy` / `work_dispatch` carry runtime/agent STRINGS, not a typed node ref — parsing a name prefix would be an invented mapping (step-2 correction of this table's earlier "measurable today") | UNKNOWN until dispatch carries a typed node ref |
 | replication (REP) | per-origin `max(events.origin_seq)` vs the pulling node's view. **No replica is registered on this node → UNKNOWN**, never CURRENT (CHECK: lag travels with LAGGING exactly — positive, else NULL) | UNKNOWN |
 | attestation (ATT) | **ABSENT from phase 1** — Authority/Proof concern (#181 rev 2); the DDL has no column, so a screen cannot render what a reducer cannot invent | — |
 | per-cell freshness | each cell's own `*_as_of` column (NOT NULL enforced per written state) | real |
