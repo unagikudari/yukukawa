@@ -50,17 +50,19 @@ def _screen_situation(conn: psycopg.Connection) -> str:
             continue                                       # never painted over with a state
         state, gap, total, nongreen, residue, src, as_of = rows[dim]
         cls = _DIM_CLS.get(state, "mut")
-        body = []
-        if gap:                                            # INCOMPLETE: named gap, never a spinner
-            body.append(f'<p class="obj">gap: {html.escape(gap)}</p>')
-        if total is not None:
-            body.append(f'<p class="num">{nongreen}<span class="den">/{total} non-green</span></p>')
-        if residue:                                        # counts travel WITH their residue
-            body.append(f'<p class="obj resid">{html.escape(residue)}</p>')
+        # north-star treatment: one big headline per card, colored sub-stat under it
+        if total is not None and state in ("OK", "ATTENTION", "CRIT"):
+            headline = f'<p class="big {cls}">{nongreen}<span class="bigden">/{total}</span></p>'
+            sub = (f'<p class="sub {cls}">{html.escape(residue)}</p>' if residue
+                   else '<p class="sub mut">0 non-green</p>')
+        else:
+            headline = f'<p class="big {cls}">{html.escape(state)}</p>'
+            sub = (f'<p class="sub inc">gap: {html.escape(gap)}</p>' if gap
+                   else '<p class="sub mut">no admissible source yet</p>')
         cards.append(
             f'<section class="card dim"><h2>{html.escape(_DIM_LABEL[dim])} '
             f'<span class="st {cls}">{html.escape(state)}</span></h2>'
-            + "".join(body)
+            + headline + sub
             + f'<p class="asof">from {html.escape(src)} · as-of {html.escape(str(as_of)[:19])}</p>'
             '</section>')
     head = ""
@@ -68,7 +70,11 @@ def _screen_situation(conn: psycopg.Connection) -> str:
         head = ('<section class="card"><p class="obj">situation_rollup holds no row for: '
                 + html.escape(", ".join(missing))
                 + ' — refresh incomplete; nothing is invented in its place.</p></section>')
-    return head + '<div class="cards">' + "".join(cards) + "</div>"
+    # north-star: the SIT landing carries the fleet panel too (one sweep, two sections)
+    return (head + '<div class="secl">SITUATION — FIVE STANDING DIMENSIONS (NEVER MERGED)</div>'
+            '<div class="cards">' + "".join(cards) + "</div>"
+            '<div class="secl">FLEET — EACH CELL ITS OWN DIMENSION</div>'
+            + _screen_fleet(conn))
 
 
 def _screen_fleet(conn: psycopg.Connection) -> str:
@@ -391,8 +397,13 @@ def render(conn: psycopg.Connection, path: str = "/", query: dict | None = None,
     events, nplans, nwork, fresh = _header_stats(conn)
     content = (fn(conn, query) if fn in (_screen_search, _screen_evidence)
                else fn(conn))
+    import datetime as _dt
+    import os as _os
+    clock = _dt.datetime.now(_dt.timezone.utc).strftime("%H:%M:%S")
+    node = _os.environ.get("KAWA_NODE") or _os.uname().nodename.split(".")[0]
     return _TEMPLATE.format(active=html.escape(label), sidebar=_sidebar(path, host), content=content,
-                            nplans=nplans, nwork=nwork, events=events, fresh=fresh)
+                            nplans=nplans, nwork=nwork, events=events, fresh=fresh,
+                            clock=clock, node=html.escape(node))
 
 
 def render_page(conn: psycopg.Connection) -> str:
@@ -423,7 +434,7 @@ border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .top{{display:flex;gap:16px;align-items:baseline;padding:13px 20px;border-bottom:1px solid var(--bd)}}
 .top h1{{font-size:15px;margin:0}}
 .top .live{{margin-left:auto;color:var(--mut);font-size:12px;font-family:ui-monospace,monospace}}
-.wrap{{padding:16px 20px;max-width:1000px}}
+.wrap{{padding:16px 20px;max-width:1360px}}
 .card{{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px}}
 .card h2{{font-size:14px;margin:0 0 2px;font-family:ui-monospace,monospace}}
 .obj{{margin:0 0 8px;color:var(--mut);font-size:12px}}
@@ -443,10 +454,18 @@ border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .st.unk{{color:var(--mut);border:1px dashed var(--mut);background:transparent}}
 /* STALE = a freshness statement (render-derived from reachability CRIT), not a verdict */
 .st.stale{{color:var(--mut);border:1px solid var(--bd);background:repeating-linear-gradient(-45deg,rgba(139,148,158,.12),rgba(139,148,158,.12) 3px,transparent 3px,transparent 7px);font-style:italic}}
-.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:14px}}
 .card.dim h2{{display:flex;justify-content:space-between;align-items:center;gap:8px}}
 .num{{font-size:22px;margin:6px 0 2px;font-family:ui-monospace,monospace}}
 .num .den{{font-size:11px;color:var(--mut);margin-left:4px}}
+.big{{font-size:30px;font-weight:700;margin:8px 0 2px;font-family:ui-monospace,monospace;line-height:1}}
+.big.ok{{color:var(--tx)}}.big.warn{{color:#E0B34A}}.big.crit{{color:#F0837C}}
+.big.unk{{color:var(--mut)}}.big.inc{{color:#CBB6F5}}
+.bigden{{font-size:13px;color:var(--mut);font-weight:400;margin-left:3px}}
+.sub{{margin:0;font-size:11px;font-family:ui-monospace,monospace}}
+.sub.warn{{color:#E0B34A}}.sub.crit{{color:#F0837C}}.sub.inc{{color:#CBB6F5}}
+.sub.mut,.sub.ok{{color:var(--mut)}}
+.secl{{font-size:10px;letter-spacing:.18em;color:var(--mut);margin:4px 0 8px;font-weight:600;text-transform:uppercase}}
 .resid{{word-break:break-all}}
 .asof{{margin:8px 0 0;color:var(--mut);font-size:10px;font-family:ui-monospace,monospace}}
 .wi.fleet{{grid-template-columns:120px 1fr;grid-auto-rows:auto}}
@@ -462,6 +481,6 @@ code{{font-family:ui-monospace,monospace;font-size:12px}}
 </style></head><body>
 {sidebar}
 <div class="main"><div class="top"><h1>{active}</h1>
-<span class="mut" style="font-size:12px">live projection · reads current_* every request</span>
-<span class="live">{nplans} plans · {nwork} work · {events} events · as-of {fresh}</span></div>
+<span class="mut" style="font-size:12px">live projections · re-read every request</span>
+<span class="live">{nplans} plans · {nwork} work · {events} events · as-of {fresh} · {clock}Z · {node}</span></div>
 <div class="wrap">{content}</div></div></body></html>"""

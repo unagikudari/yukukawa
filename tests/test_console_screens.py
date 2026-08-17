@@ -165,7 +165,8 @@ def test_measured_negative_renders_with_residue(conn):  # type: ignore[no-untype
     page = render(conn, "/")
     assert 'class="st warn">ATTENTION' in page
     assert "w-stuck" in page                        # the residue names the item on the card
-    assert "1<span" in page and "/2 non-green" in page
+    # north-star card: big numerator + /denominator (label dropped from markup)
+    assert '>1<span class="bigden">/2<' in page
 
 
 # --- invariant 7: freshness always surfaced, on every card and cell ---
@@ -173,7 +174,8 @@ def test_measured_negative_renders_with_residue(conn):  # type: ignore[no-untype
 def test_freshness_surfaced_on_every_card(conn):  # type: ignore[no-untyped-def]
     _seed_and_refresh(conn)
     page = render(conn, "/")
-    assert page.count('class="asof"') == 5          # each dimension card carries its own as-of
+    # 5 dimension cards + the co-resident fleet panel (north-star landing composition)
+    assert page.count('class="asof"') == 6
     for src in ("current_work", "current_claim_standing", "fleet_node",
                 "projection_state", "none (deferred)"):
         assert f"from {src}" in page                # and names its source projection
