@@ -329,3 +329,37 @@ def test_incomplete_becomes_valid_only_by_fetching_the_chain(world) -> None:  # 
     assert verify_receipt(partial, r, keys) == "INCOMPLETE"   # retry alone changes nothing
     partial.add(g)                                    # fetch the exact chain
     assert verify_receipt(partial, r, keys) == "VALID"
+
+# ---------------- #149 (ADV-05): members is a set — duplicates are non-conforming ----------------
+
+def test_duplicate_members_are_rejected_at_every_layer(world) -> None:  # type: ignore[no-untyped-def]
+    """A [A,A,A]/quorum-3 configuration would verify as bound while _valid_signers can
+    only ever count one distinct signer — a permanently deadlocked Cell advertising a
+    threshold it cannot meet. Mint paths refuse loudly; the verifier treats a smuggled
+    duplicate-member configuration as structurally non-conforming noise, never a crash."""
+    creds, keys = world
+    a = creds[0]
+    dup_refs = [a.signing_key_ref, a.signing_key_ref, a.signing_key_ref]
+    # mint-time: the model refuses the payload...
+    with pytest.raises(ValueError, match="duplicate member"):
+        AuthorityConfiguration(authority_key=K, configuration_digest="sha256:x",
+                               authority_epoch=0, members=dup_refs, quorum=3)
+    # ...and the coordinate derivation refuses loudly too
+    with pytest.raises(ValueError, match="duplicate member"):
+        configuration_coordinate_digest(authority_key=K, authority_epoch=0,
+                                        members=dup_refs, quorum=3,
+                                        prior_configuration_digest=None)
+    # verify-time: a configuration smuggled past pydantic (model_construct) is noise —
+    # INVALID standing, no exception, and it cannot grief a healthy genesis as a rival
+    smuggled = AuthorityConfiguration.model_construct(
+        kind=AuthorityConfiguration.model_fields["kind"].default,
+        authority_key=K, configuration_digest="sha256:whatever",
+        authority_epoch=0, members=dup_refs, quorum=3,
+        prior_configuration_digest=None,
+        succession_proof=make_proof("sha256:whatever", [a, a, a]))
+    store = AuthorityProofStore()
+    store.add(smuggled)
+    assert verify_configuration(store, "sha256:whatever", keys) == "INVALID"
+    healthy = _config([creds[0], creds[1]], 2)
+    store.add(healthy)
+    assert verify_configuration(store, healthy.configuration_digest, keys) == "VALID"

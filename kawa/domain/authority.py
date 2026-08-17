@@ -54,7 +54,13 @@ def configuration_coordinate_digest(*, authority_key: str, authority_epoch: int,
                                     members: list[str], quorum: int,
                                     prior_configuration_digest: str | None) -> str:
     """The content address of one configuration. Members are canonicalized SORTED — a
-    configuration is a set with a quorum rule, not an ordering."""
+    configuration is a set with a quorum rule, not an ordering. Duplicate members are
+    refused loudly at MINT time (#149); the VERIFY path never reaches this raise —
+    `_bound` rejects duplicate-member configurations as structurally non-conforming
+    (False → noise) before recomputing the coordinate, keeping verification fail-closed
+    instead of fail-crashed."""
+    if len(set(members)) != len(members):
+        raise ValueError("duplicate member refs — a configuration's members are a set")
     return digest({
         "authority_key": authority_key,
         "authority_epoch": authority_epoch,
@@ -150,7 +156,11 @@ class AuthorityProofStore:
 
 def _bound(cfg: AuthorityConfiguration, configuration_digest: str) -> bool:
     """Statement binding: the digest must BE the canonical coordinate (a lying digest is
-    a different configuration, not a variant of this one), and the quorum must be sane."""
+    a different configuration, not a variant of this one), and the quorum must be sane.
+    Duplicate members (#149) are structurally non-conforming — False (noise), checked
+    BEFORE the coordinate recomputation so the verifier fails closed, never crashes."""
+    if len(set(cfg.members)) != len(cfg.members):
+        return False
     return (configuration_coordinate_digest(
                 authority_key=cfg.authority_key, authority_epoch=cfg.authority_epoch,
                 members=cfg.members, quorum=cfg.quorum,
