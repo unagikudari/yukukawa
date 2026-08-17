@@ -166,9 +166,9 @@ KAWA_DSN=dbname=kawa python scripts/console_serve.py
 
 A first-run guided overlay tour is planned to explain the real dashboard by highlighting each live UI area with arrows and short callouts. It will be reopenable from a `?` / Help control and capability-aware so it never advertises functionality the running instance does not have.
 
-Onboarding proposal: [Issue #80](https://github.com/unagikudari/kawa/issues/80)
+Onboarding proposal: issue #80 (development history)
 
-North-star design handoff: [Issue #63](https://github.com/unagikudari/kawa/issues/63)
+North-star design handoff: issue #63 (development history)
 
 ## Memory Broker migration
 
@@ -178,7 +178,7 @@ Kawa is greenfield, but migration from Memory Broker is intentionally staged.
 
 Historical Broker material may coexist as legacy evidence. Active workflow and new semantic writes must have one owning path. The target is Kawa-first writes and reads, with Broker reduced to temporary transport / compatibility / archive duties before retirement.
 
-Migration proposal: [Issue #56](https://github.com/unagikudari/kawa/issues/56)
+Migration proposal: issue #56 (development history)
 
 ## Phase 0 implementation
 
@@ -196,7 +196,7 @@ The first dogfood milestone is:
 
 > **Kawa can use Kawa to implement Kawa.**
 
-Implementation stack proposal: [Issue #57](https://github.com/unagikudari/kawa/issues/57)
+Implementation stack proposal: issue #57 (development history)
 
 ### Quickstart (clean clone, Phase 0)
 
@@ -327,7 +327,7 @@ The project explicitly rejects fixes that merely accumulate:
 
 > **A counterexample should reveal a missing principle, not merely earn a new branch.**
 
-Principle audit proposal: [Issue #62](https://github.com/unagikudari/kawa/issues/62)
+Principle audit proposal: issue #62 (development history)
 
 ## Current status
 
@@ -362,16 +362,16 @@ The repository is not yet a production security or authority boundary.
 
 
 - User value and onboarding: [`docs/user-value-and-onboarding-v0.1.md`](docs/user-value-and-onboarding-v0.1.md)
-- Guided Console tour: [Issue #80](https://github.com/unagikudari/kawa/issues/80)
-- Implementation roadmap: [Issue #72](https://github.com/unagikudari/kawa/issues/72)
-- Public architecture / adversarial review entrypoint work: [PR #44](https://github.com/unagikudari/kawa/pull/44)
-- Work-driven Agent Runtime: [Issue #53](https://github.com/unagikudari/kawa/issues/53)
-- Memory Broker migration: [Issue #56](https://github.com/unagikudari/kawa/issues/56)
-- Phase 0 implementation stack: [Issue #57](https://github.com/unagikudari/kawa/issues/57)
-- Pre-dogfood semantic risk sweep: [Issue #59](https://github.com/unagikudari/kawa/issues/59)
-- Architecture principle audit: [Issue #62](https://github.com/unagikudari/kawa/issues/62)
-- Semantic Retrieval observability: [Issue #65](https://github.com/unagikudari/kawa/issues/65)
-- Console design north-star: [Issue #63](https://github.com/unagikudari/kawa/issues/63)
+- Guided Console tour: issue #80 (development history)
+- Implementation roadmap: issue #72 (development history)
+- Public architecture / adversarial review entrypoint work: PR #44 (development history)
+- Work-driven Agent Runtime: issue #53 (development history)
+- Memory Broker migration: issue #56 (development history)
+- Phase 0 implementation stack: issue #57 (development history)
+- Pre-dogfood semantic risk sweep: issue #59 (development history)
+- Architecture principle audit: issue #62 (development history)
+- Semantic Retrieval observability: issue #65 (development history)
+- Console design north-star: issue #63 (development history)
 
 ## License
 
