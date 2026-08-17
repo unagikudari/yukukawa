@@ -189,8 +189,10 @@ def pull_http(dest: psycopg.Connection, base_url: str, *, credential: NodeCreden
     event over its received bytes (`from_wire`) → the SAME trust-gated `admit_batch` as
     in-process replication. Transport adds reachability, never leniency: a wire-verification
     failure is a typed Rejection, and everything downstream is unchanged admission."""
+    if not base_url.startswith(("http://", "https://")):
+        raise ValueError(f"invalid base_url scheme (must be http:// or https://): {base_url!r}")
     try:
-        with urllib.request.urlopen(base_url + "/replication/challenge") as resp:
+        with urllib.request.urlopen(base_url + "/replication/challenge") as resp:  # nosec B310 - scheme validated above
             nonce = json.loads(resp.read())["nonce"]
         frontier_map = frontier(dest)
         sent_at = time.time()
@@ -205,7 +207,7 @@ def pull_http(dest: psycopg.Connection, base_url: str, *, credential: NodeCreden
         }).encode("utf-8")
         req = urllib.request.Request(base_url + "/replication/pull", data=body,
                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req) as resp:  # nosec B310 - scheme validated above
             payload = json.loads(resp.read())
     except urllib.error.HTTPError as err:
         try:
