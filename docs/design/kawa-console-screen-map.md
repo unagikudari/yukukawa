@@ -34,12 +34,13 @@
   the other projections, holding no truth of its own).
 - **Dimensions read:** **all five** — `AUTHORITY`, `EXECUTION`, `EPISTEMIC`,
   `HEALTH/REACH`, `PROJECTION-FRESHNESS`, each in its own card, **never merged**.
-- **Column bindings (TBD):**
-  - Authority card ← `situation_rollup.<authority-summary: valid/invalid/incomplete counts — TBD pending keystone/#51>`
-  - Execution card ← `situation_rollup.<execution-summary: running/stalled/done — TBD #51>`
-  - Epistemic card ← `situation_rollup.<epistemic-summary: contested/stale-gold — TBD #51>`
-  - Health card ← `situation_rollup.<reachability-summary: reachable/unreachable — TBD #51>`
-  - Freshness card ← `situation_rollup.<projection-freshness: p95/last-refresh/partial-count — TBD #51>`
+- **Column bindings (RESOLVED — phase 1):** one `situation_rollup` row per card:
+  `(dimension, state, gap, count_total, count_nongreen, residue, source_projection, as_of)`.
+  - Authority card ← `dimension='AUTHORITY'` — **NO-SOURCE → INCOMPLETE-by-design**, `gap='verifier read-model absent (phase 2+)'`; never derived from raw `security_*` tables
+  - Execution card ← rolled up from `current_work.execution/eligibility/coordination` + `work_dispatch.dispatch_state`
+  - Epistemic card ← rolled up from `current_claim_standing.standing`
+  - Health card ← rolled up from `fleet_node` (§4)
+  - Freshness card ← `projection_state.state/error_code/last_recorded_at` — table currently EMPTY ⇒ `INCOMPLETE` with `gap='no projection reports state yet'` until step-2 reducers register rows (a known named gap, not absence-of-evidence; `gap` is CHECK-pinned to INCOMPLETE)
 - **MUST:** no combined "overall health" field is read or synthesised; the
   non-green residue is always carried alongside any count.
 
@@ -51,12 +52,12 @@
 - **Projection family:** `evidence_provenance` (event-derived provenance records).
 - **Dimensions read:** `EPISTEMIC` (primary), `AUTHORITY` (the standing the
   evidence supports), `PROJECTION-FRESHNESS`.
-- **Column bindings (TBD):**
-  - Claim/effect subject ← `evidence_provenance.<subject-ref: TBD pending keystone/#51>`
-  - Evidence items ← `evidence_provenance.<epistemic-dimension cols: source/derivation/contested-flag — TBD #51>`
-  - Provenance kind ← `evidence_provenance.<provenance-kind: event-derived | inferred — TBD #51>`
-    (drives solid-vs-dashed rendering; same distinction as Graph)
-  - Standing supported ← `evidence_provenance.<epistemic_standing ref — TBD keystone>`
+- **Column bindings (RESOLVED — phase 1):** the screen reads
+  `evidence_provenance` ONLY (1:1 projection of `link.asserted`; never raw events):
+  - Claim/effect subject ← `evidence_provenance.source_ref` / `target_ref`
+  - Evidence items ← rows joined on either ref, with `relation` (11 typed values) + `recorded_at` + `actor_ref`
+  - Provenance kind ← `evidence_provenance.provenance` — CHECK-pinned to `event_derived` in phase 1; `inferred` is inadmissible until the Graph phase adds it WITH a named-rule column. An empty result set renders **missing provenance**, never inferred continuity
+  - Standing supported ← deferred with the verifier read-model (renders nothing, not a placeholder)
 - **MUST:** event-derived vs inferred evidence is visually distinct; a growth/skill
   record, if present, is labelled evidence and is never rendered as authority.
 
@@ -95,17 +96,13 @@
   facets under `HEALTH/REACH` + adjacent standing; the invariant is that
   `online ≠ workload healthy ≠ replication current ≠ attestation strong ≠
   trust clear ≠ Cell eligible ≠ quorum available`.) Plus `PROJECTION-FRESHNESS`.
-- **Column bindings (TBD):**
-  - node identity ← `fleet_node.<node-ref / role — TBD pending #51>`
-  - RCH ← `fleet_node.<reachability-dimension col — TBD #51>`
-  - WKL ← `fleet_node.<workload-health-dimension col — TBD #51>`
-  - REP ← `fleet_node.<replication-currency-dimension col + lag — TBD #51>`
-  - ATT ← `fleet_node.<attestation-strength-dimension col — TBD keystone/#51>`
-    (may resolve to INCOMPLETE, not warn — keep three-state)
-  - TRU ← `fleet_node.<trust-clarity-dimension col — TBD keystone/#51>`
-  - CEL ← `fleet_node.<cell-eligibility-dimension col — TBD #51>`
-  - QRM ← `fleet_node.<quorum-availability-dimension col — TBD #51>`
-  - per-cell freshness ← `fleet_node.<cell-freshness / as-of — TBD #51>`
+- **Column bindings (RESOLVED — phase 1; ATT/TRU/CEL/QRM deferred with their read-models):**
+  - node identity ← `fleet_node.node_ref` (sourced from `DISTINCT events.origin_node`)
+  - RCH ← `fleet_node.reachability` — **NO-SOURCE today → UNKNOWN**; `reachability_source` is NULL iff UNKNOWN (CHECK), so a future real source must be named or the write fails
+  - WKL ← `fleet_node.workload` + `workload_detail` (from `runtime_work_occupancy` + `work_dispatch`)
+  - REP ← `fleet_node.replication` + `replication_lag` — no replica registered ⇒ UNKNOWN, never CURRENT
+  - ATT / TRU / CEL / QRM ← **deferred** (Authority/Proof & Cell read-models absent; no column exists, so no cell can be invented — #181 rev 2)
+  - per-cell freshness ← `fleet_node.reachability_as_of / workload_as_of / replication_as_of`; 'STALE' is render-derived from reachability=CRIT and is unstorable (CHECK)
 - **MUST:** when reachability is CRIT the other cells render STALE (freshness),
   not red/green; attestation that cannot be evaluated renders INCOMPLETE, not warn.
 

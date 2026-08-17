@@ -105,6 +105,8 @@ CREATE TABLE current_plans (
 ### 4.2 Remaining current_* projections
 
 `current_projects`, `current_problems`, `current_reviews`, `current_findings`, `current_facts` follow 4.1's pattern. Two carry authority-relevant columns worth pinning now:
+> **SUPERSEDED VOCABULARY (2026-08-17, plan-console-phase1 step 1):** this section predates the epistemic nucleus (spec v0.5 §2.6) — Kawa-owned Fact was retired and `current_facts` was never created. The live epistemic read-model is `current_claim_standing` (`standing`, default `'unevaluated'`); see `design/kawa-console-phase1-bindings-v0.1.md` §6.
+
 - `current_facts` carries the derived Fact state `CHECK (fact_state IN ('clear','conflicted','unknown'))` — the epistemic triad (spec §5.3), the read-side twin of the ③④ verifier's `VALID/INVALID/INCOMPLETE`. A `conflicted` Fact is rendered as conflicted, never silently resolved to one side.
 - `current_reviews` carries the review verdict vocabulary; conflicting reviews leave the reviewed input `conflicted`, they do not vote a winner (#53 §4).
 
