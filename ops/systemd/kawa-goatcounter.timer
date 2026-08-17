@@ -1,0 +1,10 @@
+[Unit]
+Description=daily kawa goatcounter collection (yesterday's finalized visits)
+
+[Timer]
+OnCalendar=*-*-* 01:30 UTC
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

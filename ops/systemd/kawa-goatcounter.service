@@ -1,0 +1,14 @@
+# Deterministic collector: public-site daily visits -> observation.recorded.
+# Records YESTERDAY (the last complete UTC day); idempotent on re-run.
+# Operator config (site/token/coverage floor) lives in git-ignored %h/kawa/.env.
+[Unit]
+Description=kawa goatcounter collector — daily site visits Observation
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/kawa
+Environment=KAWA_DSN=dbname=kawa
+Environment=KAWA_NODE=panoplia
+EnvironmentFile=-%h/kawa/.env
+TimeoutStartSec=2m
+ExecStart=%h/kawa/.venv/bin/python scripts/collect_goatcounter.py
