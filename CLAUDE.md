@@ -20,6 +20,15 @@ brief は open plan・roadmap 位置・**次の actionable Work** を返す。�
 
 実装は **worktree で**: `git worktree add ~/wt-kawa-<slug> -b <branch>` → PR → merge 後に ~/kawa で `git pull` + 必要なら service restart。memory-broker の dual-checkout 教義と同型。
 
+## public/private の分担 (2026-08-18 公開後の恒久規律)
+
+- **private `unagikudari/kawa` = 開発 SoT**。コード・PR・内部 issue (運用識別子可) は全部ここ。fleet の全 remote はここだけ。
+- **public `unagikudari/yukukawa` = 公開 projection + 外部受付** (issue / PVR)。書き込みは `scripts/export_public_mirror.py` の export dir からの push **のみ** — dev checkout は mirror を remote に持たない・追加しない。
+- **gh は cwd の remote で解決される** → repo 内で打つ gh は自動的に private を向く (安全側)。public を触るのは **`-R unagikudari/yukukawa` を明示した時だけ** — 公開面への書き込みを常に意図的な行為にする非対称ルール。
+- 外部 issue への対応: private 側で plan/work として処理 → main に merge → export 再構築 & push (fast-forward) → public issue に対応 commit (`Source-Commit` で private 対応が追える) を示して返信・close。
+- 新規の public issue/コメントには運用識別子を書かない (publication-boundary の discussion-plane 規律は公開面では常時適用)。
+- org `yukukawa` の解放が通ったら repo Transfer で `yukukawa/kawa` へ (redirect が残るのでリンク不変)。
+
 ## 開発の型 (この repo の規律 — 逸脱しない)
 
 各 step は **plan-first + 二段の独立敵対レビュー**を通してから実装する:
