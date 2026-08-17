@@ -100,6 +100,23 @@ def scope_digest_of(scope_ref: str) -> str:
     return "sha256:" + hashlib.sha256(scope_ref.encode("utf-8")).hexdigest()
 
 
+def parse_hlc(hlc: str) -> tuple[int, int, str] | None:
+    """Structural parse of an HLC stamp: `(physical_ms, logical, node)`, or None if the
+    stamp is not mechanically well-formed (#145 temporal admissibility — a coordinate
+    must parse before it may influence ordering; `split_part(...)::bigint` in the
+    reducers would otherwise meet malformed stamps at query time, which is far too late)."""
+    parts = hlc.split(".", 2)
+    if len(parts) != 3 or not parts[2]:
+        return None
+    try:
+        phys, logical = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if phys < 0 or logical < 0:
+        return None
+    return phys, logical, parts[2]
+
+
 @dataclass
 class HLC:
     """Hybrid Logical Clock. Ordering hint only — a higher HLC never *creates* authority (S6).
