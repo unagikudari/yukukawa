@@ -604,3 +604,47 @@ Publishing the security architecture does not expose any secret required for enf
 ## 26. Core rule
 
 > **Authenticate identity. Authorize capability. Bind approval. Revoke authority. Mediate secrets. Contain the Agent. Preserve the Event.**
+
+## 27. Control maturity (gate-4 annex, 2026-08-18)
+
+SECURITY.md's publication gate requires every control in this model to carry an
+honest maturity label. The labels below are deliberately conservative — where
+enforcement is partial or unverified, the label is the weaker one, because this
+policy defines over-claiming (not the gap itself) as the vulnerability.
+
+Vocabulary: **enforced** = mechanized in merged code with tests; **partial** =
+some invariants of the section mechanized, the rest not; **designed** =
+normative text exists, no enforcement in `main`; **deferred** = explicitly
+out of current scope.
+
+| §  | Control | Maturity | Evidence anchor |
+|----|---------|----------|-----------------|
+| 2  | Event-log integrity (hash chain, content-addressed identity, replay verify) | enforced | `kawa/domain/events.py`, replay `verify()` in `reducers.rebuild`, e2e tests |
+| 3.2| Node identity (ed25519 credential, key registry) | enforced | `kawa/domain/credential.py`, provenance tests |
+| 3.3| Workload identity / Process Incarnation | partial | incarnation events + tests; no runtime attestation chain |
+| 3.4| Logical agent identity | partial | `actor_ref` attribution on every event; no credential binding per agent |
+| 4  | Authentication gate | designed | normative only — repo is not a production auth boundary (README) |
+| 5  | Authorization model (identity ≠ capability ≠ approval ≠ execution) | designed | vocabulary + event kinds exist; verifier read-model absent (Console renders the gap as INCOMPLETE-by-design) |
+| 6  | Capability model | designed | — |
+| 7  | Resource handles | designed | — |
+| 8  | Secrets / Secret Broker | designed | collector discipline keeps credentials out of the record (adversarially reviewed), but no mediated-execution broker exists |
+| 9  | Human approval binding | partial | plan-approval digest Observations (`plan_approved_semantics_digest`) bind approved text to the chain; no cryptographic approver signature |
+| 10 | Break-glass | designed | — |
+| 11 | Agent threat model | designed (threat model, not a control) | — |
+| 12 | Data vs instruction separation | partial | wake-pull WakeHint structural minimalism (merged); retrieval surfaces carry provenance |
+| 13 | Review and security challenge | enforced (as process) | two-round adversarial review discipline with recorded verdicts; drift + publication linters in CI |
+| 14 | External side effects | partial | occurrence keys / duplicate quarantine merged; reconciliation incomplete |
+| 15 | Wizard boundary | deferred | no wizard exists |
+| 16 | Accountability (attribution, signed emit) | enforced | signed-at-birth emit, `origin_node` bound to credential, provenance verify tests |
+| 17 | Kill switches / revocation | designed | revocation tables exist (`security_revocation`), no enforcement path |
+| 18 | Federation / offline nodes | partial | application-level pull replication + trust enrollment (operator act) merged; basin admission per envelope v2; quorum/cells designed |
+| 19 | Search and disclosure ordering | partial | SQL-first retrieval with provenance/frontier surfacing; authorization-before-disclosure not enforced |
+| 20 | Security-plane separation | partial | typed `security_*` tables separated from domain events |
+| 21 | Public security design | enforced (by this publication process) | Strategy B, gate linter, export gate |
+| 22 | Publication boundary | enforced | `lint_publication_boundary.py` (CI) + full-history export gate (`export_public_mirror.py`), both adversarially reviewed |
+| 23 | Trust boundary summary | n/a (summary) | — |
+| 24 | Non-goals | n/a | — |
+| 25 | Acceptance tests | partial | boundary/linter/export tests exist; model-wide acceptance suite absent |
+
+A label upgrade requires the same discipline as any kawa change: the
+mechanizing PR cites this table and moves the row in the same change.

@@ -210,11 +210,19 @@ def build_index(repo: Path, commit: str | None = None) -> SectionIndex:
                 digests[doc] = hashlib.sha256(blob).hexdigest()
         _CACHE[resolved] = (by_doc, digests)
     by_doc, digests = _CACHE[resolved]
+    # dirty-withholding guards against UNCOMMITTED divergence and therefore only
+    # applies when indexing HEAD: a HISTORICAL pin legitimately differs from the
+    # working tree (docs evolve), and its blobs come from the object store, which
+    # is already deterministic — withholding there made any post-pin edit to an
+    # authority doc break every pinned resolve (found 2026-08-18 when the gate-4
+    # maturity annex, a legitimate edit, silently emptied a pinned index).
+    head = _git(repo, "rev-parse", "HEAD").decode().strip()
     sections: list[DocSection] = []
     dirty: list[str] = []
     for doc, secs in by_doc.items():
         wt = repo / doc
-        if wt.exists() and hashlib.sha256(wt.read_bytes()).hexdigest() != digests[doc]:
+        if (resolved == head and wt.exists()
+                and hashlib.sha256(wt.read_bytes()).hexdigest() != digests[doc]):
             dirty.append(doc)                          # withheld: caller states repository_dirty
             continue
         sections.extend(secs)
