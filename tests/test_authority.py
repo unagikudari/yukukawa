@@ -363,3 +363,24 @@ def test_duplicate_members_are_rejected_at_every_layer(world) -> None:  # type: 
     healthy = _config([creds[0], creds[1]], 2)
     store.add(healthy)
     assert verify_configuration(store, healthy.configuration_digest, keys) == "VALID"
+
+
+def test_genesis_requires_unanimity_not_quorum_164(world) -> None:  # type: ignore[no-untyped-def]
+    """#164: founding is one-shot unanimous. A genesis signed by a quorum subset of its
+    declared members conscripts the non-signers into the accountable pool — fabricated
+    consent at the membership level. Quorum governs operation/succession, never creation."""
+    creds, keys = world
+    # 2-of-3 signatures meet the declared quorum but NOT unanimity: non-conforming noise
+    store = AuthorityProofStore()
+    conscripted = _config(creds, 2, signers=creds[:2])
+    store.add(conscripted)
+    assert verify_configuration(store, conscripted.configuration_digest, keys) == "INVALID"
+    # ...and as noise it cannot grief a healthy unanimous genesis into a conflict
+    healthy = _config(creds, 2)                        # all three members sign
+    store.add(healthy)
+    assert verify_configuration(store, healthy.configuration_digest, keys) == "VALID"
+    # succession stays quorum-based: the parent's quorum (2 of 3) proves the successor
+    succ = _config(creds, 2, epoch=1, prior=healthy.configuration_digest,
+                   signers=creds[:2])
+    store.add(succ)
+    assert verify_configuration(store, succ.configuration_digest, keys) == "VALID"
