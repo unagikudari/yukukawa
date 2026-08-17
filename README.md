@@ -372,6 +372,10 @@ The repository is not yet a production security or authority boundary.
 - Semantic Retrieval observability: [Issue #65](https://github.com/unagikudari/kawa/issues/65)
 - Console design north-star: [Issue #63](https://github.com/unagikudari/kawa/issues/63)
 
+## License
+
+[Apache-2.0](LICENSE).
+
 ## Project maxim
 
 > **Preserve Events. Rebuild understanding. Prove authority. Replace participants. Continue the work.**
