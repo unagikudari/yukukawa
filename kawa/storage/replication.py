@@ -23,12 +23,47 @@ from dataclasses import dataclass, field
 
 import psycopg
 
+import time as _time
+
 from kawa.domain.events import AuthorityConfiguration, Event, EventKind
 from kawa.domain.credential import PublicKeyRegistry
-from kawa.domain.ids import HLC, scope_digest_of
+from kawa.domain.ids import HLC, parse_hlc, scope_digest_of
 from kawa.domain.trust import TrustRegistry, admit, evaluate
 from kawa.projections.reducers import _load_payload, reduce
 from kawa.storage.emit import _insert_payload
+
+
+@dataclass(frozen=True)
+class TemporalPolicy:
+    """The temporal-admissibility profile (#145, generalized per the #142 fold): a temporal
+    coordinate must be MECHANICALLY ADMISSIBLE — parseable, and within the tolerated forward
+    skew of the receiver's clock — before it may influence ordering or advance the local HLC.
+
+    `max_forward_skew_ms` is deployment/security-profile POLICY, never a Core constant: the
+    default follows the transport freshness precedent (60s, replication_http) and blocks
+    FAR-future ADV-01 result-pinning. Stated honestly: the bound is also an ADVERSARIAL pin
+    budget — a malicious trusted emitter can stamp now+59s and transiently win causal-order
+    tiebreaks inside the window (HLC stays an ordering hint, never authority — S6; a tighter
+    profile shrinks the budget). Deployments tighten or relax it without touching Core.
+
+    Rejection here is DEFERRAL, not a standing change (#142 fold, rule 3): the event and its
+    successors are refused THIS pull (contiguity is structural), nothing is frozen, no trust
+    is touched, and no durable evidence row is written — the next pull retries from the same
+    frontier. An honest origin with small clock skew self-heals as the receiver's clock
+    catches up; a far-future forger parks only its OWN stream, forever, which is the
+    attacker paying the whole cost. Escalating an origin's standing over repeated
+    inadmissibility is a separate, explicit policy decision that does not live in this gate."""
+
+    max_forward_skew_ms: int = 60_000
+
+    def admissible(self, hlc: str, now_ms: int) -> str | None:
+        """None when admissible; otherwise the typed refusal reason."""
+        parsed = parse_hlc(hlc)
+        if parsed is None:
+            return "hlc_malformed"
+        if parsed[0] > now_ms + self.max_forward_skew_ms:
+            return "hlc_forward_skew"
+        return None
 
 
 @dataclass(frozen=True)
@@ -39,6 +74,8 @@ class Rejection:
     origin_node: str
     origin_seq: int
     reason: str  # 'collision' | 'chain_gap' | 'chain_break' | 'envelope_invalid' | 'unsigned' |
+    #              'hlc_malformed' | 'hlc_forward_skew' (temporal admissibility, #145 —
+    #              deferral, not standing: retried on the next pull) |
     #              'provenance_invalid' | 'trust_rotated' | 'trust_revoked' | 'trust_unknown' |
     #              'forged_origin' | 'predecessor_rejected' | 'origin_frozen' |
     #              'equivocation' | 'restore_fork' | 'wire_invalid' (transport, replication_http) |
@@ -168,7 +205,9 @@ def serve_batch(events: list[Event], grants: frozenset[str] | None = None) -> li
 
 def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKeyRegistry,
                 trust: TrustRegistry, clock: HLC | None = None,
-                requested_scopes: frozenset[str] | None = None) -> PullReport:
+                requested_scopes: frozenset[str] | None = None,
+                temporal: TemporalPolicy | None = None,
+                now_ms: int | None = None) -> PullReport:
     """Trust-gated append of a received batch. Admitted Events are inserted (envelope + typed payload
     row, exactly as the origin emitted them) and reduced into the projections; every refusal is a
     typed Rejection. Once one Event of an origin stream is refused, the rest of that stream cannot
@@ -184,6 +223,8 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
     report_rejected: list[Rejection] = []
     heads: dict[str, tuple[int, str]] = {}   # origin -> (held seq, held self_hash)
     poisoned: set[str] = set()
+    temporal = temporal if temporal is not None else TemporalPolicy()
+    t_now = now_ms if now_ms is not None else int(_time.time() * 1000)
 
     with conn.cursor() as cur:
         cur.execute(
@@ -283,6 +324,15 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
             if e.prev_hash != head_hash:
                 reject("chain_break")          # does not chain onto what we hold
                 continue
+            # ---- temporal admissibility (#145): the coordinate must parse and sit within
+            # the profile's forward-skew bound BEFORE it can order anything or advance the
+            # local clock. Refusal is deferral, not standing: within-batch successors fall
+            # to predecessor_rejected (contiguity), but nothing freezes, no trust changes,
+            # and the next pull retries — an honest clock heals, a forger parks itself.
+            t_reason = temporal.admissible(e.hlc, t_now)
+            if t_reason is not None:
+                reject(t_reason)
+                continue
             if e.scope_ref is not None and e.scope_digest != scope_digest_of(e.scope_ref):
                 reject("scope_digest_mismatch")   # cleartext lies about the hashed commitment (9b)
                 continue
@@ -339,7 +389,8 @@ def admit_batch(conn: psycopg.Connection, batch: list[Event], *, keys: PublicKey
 def pull(dest: psycopg.Connection, source: psycopg.Connection, *, keys: PublicKeyRegistry,
          trust: TrustRegistry, clock: HLC | None = None,
          source_trust: TrustRegistry | None = None, puller_node: str | None = None,
-         scopes: tuple[str, ...] | None = None) -> PullReport:
+         scopes: tuple[str, ...] | None = None,
+         temporal: TemporalPolicy | None = None) -> PullReport:
     """One anti-entropy pull (event-log-and-replication §4.1): frontier → missing events → gated admit.
     `keys`/`trust` are the RECEIVER's registries — trust is a local judgement, never taken from the peer.
 
@@ -356,7 +407,8 @@ def pull(dest: psycopg.Connection, source: psycopg.Connection, *, keys: PublicKe
     if scopes:   # payload backfill for held stubs in now-requested scopes (BC-ii)
         stream = stream + read_positions(source, held_stub_positions(dest, scopes))
     return admit_batch(dest, serve_batch(stream, offer),
-                       keys=keys, trust=trust, clock=clock, requested_scopes=requested)
+                       keys=keys, trust=trust, clock=clock, requested_scopes=requested,
+                       temporal=temporal)
 
 
 def _authority_genesis_watch(cur: psycopg.Cursor, e: Event, keys: PublicKeyRegistry,

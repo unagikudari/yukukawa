@@ -7,6 +7,8 @@ test fixture. Skips cleanly when either DB is unavailable.
 """
 from __future__ import annotations
 
+import time
+
 import os
 
 import pytest
@@ -17,7 +19,7 @@ from kawa.domain.events import Event, PlanCreated
 from kawa.domain.identity import IdentityContext
 from kawa.domain.ids import HLC, digest, event_hash
 from kawa.domain.trust import TrustRegistry
-from kawa.storage.replication import admit_batch, frontier, pull, read_stream
+from kawa.storage.replication import TemporalPolicy, admit_batch, frontier, pull, read_stream
 
 psycopg = pytest.importorskip("psycopg")
 
@@ -88,7 +90,7 @@ def _forge(origin_node: str, seq: int, prev_hash: str | None, cred) -> Event:  #
     signed by `cred` — whoever that key belongs to."""
     payload = PlanCreated(plan_ref="evil", project_ref="kawa", objective="forged")
     pd = digest(payload.model_dump(mode="json"))
-    hlc = f"9999999999999.0.{origin_node}"
+    hlc = f"{int(time.time() * 1000)}.0.{origin_node}"   # near-now: these tests exercise provenance/origin, not temporal admissibility (#145)
     sh = event_hash(origin_node=origin_node, origin_seq=seq, hlc=hlc, kind=payload.kind.value,
                     subject_ref=None, actor_ref="attacker", policy_digest=None,
                     payload_digest=pd, prev_hash=prev_hash)
@@ -259,3 +261,81 @@ def test_gap_is_reported_not_skipped(conn_a, conn_b, node_a) -> None:  # type: i
     assert report.admitted == [wire[0].event_id]
     assert [r.reason for r in report.rejected] == ["chain_gap"]
     assert frontier(conn_b) == {"node-a": 1}                        # holds exactly the contiguous prefix
+
+
+# ---- temporal admissibility (#145): coordinates must be mechanically admissible ----
+
+def _stamped(origin_node: str, seq: int, prev_hash, cred, hlc: str):  # type: ignore[no-untyped-def]
+    """A validly signed event with a caller-chosen HLC stamp."""
+    payload = PlanCreated(plan_ref=f"tp-{seq}", project_ref="kawa", objective="temporal")
+    pd = digest(payload.model_dump(mode="json"))
+    sh = event_hash(origin_node=origin_node, origin_seq=seq, hlc=hlc, kind=payload.kind.value,
+                    subject_ref=None, actor_ref="tester", policy_digest=None,
+                    payload_digest=pd, prev_hash=prev_hash)
+    return Event(event_id=sh, origin_node=origin_node, origin_seq=seq, hlc=hlc, kind=payload.kind,
+                 subject_ref=None, actor_ref="tester", policy_digest=None, payload_digest=pd,
+                 prev_hash=prev_hash, self_hash=sh, signature=cred.sign(sh),
+                 signing_key_ref=cred.signing_key_ref, signature_scheme="ed25519", payload=payload)
+
+
+def test_future_hlc_is_deferred_not_admitted_and_never_advances_the_clock(conn_a, conn_b, node_a, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """ADV-01: a +10min HLC must not enter the store, must not pin ordering, and must not
+    pollute the receiver's clock. Refusal is deferral: nothing freezes, no fork evidence,
+    and the same stream admits once the receiver's clock catches up."""
+    kawa, cred, keys, trust = node_a
+    now = int(time.time() * 1000)
+    future = _stamped("node-a", 1, None, cred, f"{now + 600_000}.0.node-a")
+    successor = _stamped("node-a", 2, future.self_hash, cred, f"{now + 600_001}.0.node-a")
+    clock = HLC(node="node-b")
+    report = admit_batch(conn_b, [future, successor], keys=keys, trust=trust,
+                         clock=clock, now_ms=now)
+    assert [r.reason for r in report.rejected] == ["hlc_forward_skew", "predecessor_rejected"]
+    assert report.admitted == []
+    assert clock.physical_ms == 0                       # clock.update never ran (no pollution)
+    with conn_b.cursor() as cur:
+        cur.execute("SELECT count(*) FROM events WHERE origin_node='node-a'")
+        assert cur.fetchone()[0] == 0                   # nothing entered the store
+        cur.execute("SELECT count(*) FROM security_fork_evidence")
+        assert cur.fetchone()[0] == 0                   # deferral, never standing/evidence
+    # self-healing: the identical batch admits when the receiver's clock has caught up
+    later = now + 600_000
+    report2 = admit_batch(conn_b, [future, successor], keys=keys, trust=trust,
+                          clock=clock, now_ms=later)
+    assert len(report2.admitted) == 2 and report2.rejected == []
+
+
+def test_malformed_hlc_is_rejected_before_it_can_order_anything(conn_a, conn_b, node_a, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    kawa, cred, keys, trust = node_a
+    bad = _stamped("node-a", 1, None, cred, "not-a-clock")
+    report = admit_batch(conn_b, [bad], keys=keys, trust=trust)
+    assert [r.reason for r in report.rejected] == ["hlc_malformed"]
+    assert report.admitted == []
+
+
+def test_forward_skew_bound_is_profile_policy(conn_a, conn_b, node_a, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The bound is deployment policy, not a Core constant: a tight profile rejects what
+    the default tolerates."""
+    kawa, cred, keys, trust = node_a
+    now = int(time.time() * 1000)
+    slightly_ahead = _stamped("node-a", 1, None, cred, f"{now + 30_000}.0.node-a")
+    tight = admit_batch(conn_b, [slightly_ahead], keys=keys, trust=trust,
+                        temporal=TemporalPolicy(max_forward_skew_ms=1_000), now_ms=now)
+    assert [r.reason for r in tight.rejected] == ["hlc_forward_skew"]
+    default = admit_batch(conn_b, [slightly_ahead], keys=keys, trust=trust, now_ms=now)
+    assert len(default.admitted) == 1                   # 30s ahead is inside the 60s default
+
+
+def test_gate_is_at_least_as_strict_as_the_bigint_store_domain(conn_a, conn_b, node_a, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Review finding on #145: Python int() accepts a superset of Postgres ::bigint text —
+    Unicode digits and >2^63 logical fields passed the gate then ABORTED the admission
+    INSERT, turning per-origin deferral into a batch-wide exception that rolled back
+    co-batched honest origins. The predicate must match the store's domain."""
+    kawa, cred, keys, trust = node_a
+    now = int(time.time() * 1000)
+    for bad_hlc in ("١٢٣.0.node-a",                                  # Unicode digits, small value
+                    f"{now}.99999999999999999999999.node-a",          # logical > 2^63-1
+                    f"{now}.١.node-a"):                               # Unicode logical
+        e = _stamped("node-a", 1, None, cred, bad_hlc)
+        report = admit_batch(conn_b, [e], keys=keys, trust=trust, now_ms=now)
+        assert [r.reason for r in report.rejected] == ["hlc_malformed"], bad_hlc
+        assert report.admitted == []

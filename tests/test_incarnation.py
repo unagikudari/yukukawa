@@ -4,6 +4,8 @@ Same two-store layout as test_replication.py (kawa_test_a / kawa_test_b; skips w
 """
 from __future__ import annotations
 
+import time
+
 import os
 
 import pytest
@@ -67,7 +69,7 @@ def _rival(origin_node: str, seq: int, prev_hash: str | None, cred, plan_ref: st
     """An internally-consistent rival successor at a position, signed by `cred`."""
     payload = PlanCreated(plan_ref=plan_ref, project_ref="kawa", objective="the other branch")
     pd = digest(payload.model_dump(mode="json"))
-    hlc = f"9999999999999.0.{origin_node}"
+    hlc = f"{int(time.time() * 1000)}.0.{origin_node}"   # near-now: these tests exercise provenance/origin, not temporal admissibility (#145)
     sh = event_hash(origin_node=origin_node, origin_seq=seq, hlc=hlc, kind=payload.kind.value,
                     subject_ref=None, actor_ref="rival", policy_digest=None,
                     payload_digest=pd, prev_hash=prev_hash)

@@ -100,6 +100,28 @@ def scope_digest_of(scope_ref: str) -> str:
     return "sha256:" + hashlib.sha256(scope_ref.encode("utf-8")).hexdigest()
 
 
+def parse_hlc(hlc: str) -> tuple[int, int, str] | None:
+    """Structural parse of an HLC stamp: `(physical_ms, logical, node)`, or None if the
+    stamp is not mechanically well-formed (#145 temporal admissibility — a coordinate
+    must parse before it may influence ordering; `split_part(...)::bigint` in the
+    reducers would otherwise meet malformed stamps at query time, which is far too late)."""
+    parts = hlc.split(".", 2)
+    if len(parts) != 3 or not parts[2]:
+        return None
+    # ASCII-decimal-only, both numeric fields: Python int() accepts a SUPERSET of the
+    # Postgres bigint text domain (Unicode digits, underscores via literals, etc.) —
+    # review of #145 found "١٢٣.0.node" passing int() then aborting the admission
+    # INSERT at ::bigint, converting per-origin deferral into a batch-wide exception.
+    # The admissibility predicate must be at least as strict as what the store commits to.
+    if not (parts[0].isascii() and parts[0].isdigit()
+            and parts[1].isascii() and parts[1].isdigit()):
+        return None
+    phys, logical = int(parts[0]), int(parts[1])
+    if phys > 2**63 - 1 or logical > 2**63 - 1:      # signed-64-bit: the bigint domain
+        return None
+    return phys, logical, parts[2]
+
+
 @dataclass
 class HLC:
     """Hybrid Logical Clock. Ordering hint only — a higher HLC never *creates* authority (S6).
