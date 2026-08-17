@@ -243,7 +243,11 @@ def measure(conn: psycopg.Connection, corpus: dict, raw_bytes: bytes,
                         fallback_policy=spec.get("fallback_policy"))
         # recall corpus is fleet/unscoped dogfood — the gate measures under fleet visibility
         bundle = retrieve(conn, intent, embedder, viewer_scopes=FLEET_SCOPES)  # 11B: None => textual vector stated as skipped
-        retrieved = {r.ref for recs in bundle.sections.values() for r in recs}
+        # #156 Phase A: repository/precedent sideband candidates are EXCLUDED from the
+        # recall-gate label space — the gate scores Domain-record recall only, so the
+        # measurement is unchanged by orientation candidates (plan sketch 7).
+        retrieved = {r.ref for recs in bundle.sections.values() for r in recs
+                     if r.kind not in ("normative_section", "precedent")}
         anchor = bundle.plan.bound.anchor_ref
         rep = per_class[q["expected_class"]]
         rep.n += 1

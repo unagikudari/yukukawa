@@ -145,6 +145,45 @@ def c4_docset(docs_by_name: dict[str, Path]) -> list[dict]:
     return out
 
 
+def c5_domains(reg: dict) -> list[dict]:
+    """#156 Phase A: the domain->section mapping is POINTERS ONLY over current doc
+    authority. Fail when: an anchor does not resolve (stale mapping), resolves
+    ambiguously, is duplicated within a domain, points outside current-authority
+    docs, or when indexed sections collide on (doc_path, heading_path) / anchor8
+    (r4-F7 uniqueness lint). Runs against the git object store at HEAD — the same
+    source retrieval answers from."""
+    domains: dict = reg.get("domains", {})
+    if not domains:
+        return []
+    out: list[dict] = []
+    try:
+        if str(REPO) not in sys.path:
+            sys.path.insert(0, str(REPO))
+        from kawa.repo_sections import build_index
+        idx = build_index(REPO)
+    except Exception as exc:                            # no git / no HEAD: state it, don't crash CI
+        return [finding("C5-domains", "registry", f"section index unavailable: {exc}")]
+    seen_hp: dict[tuple[str, str], int] = {}
+    seen_a8: dict[str, str] = {}
+    for s in idx.sections:
+        seen_hp[(s.doc_path, s.heading_path)] = seen_hp.get((s.doc_path, s.heading_path), 0) + 1
+        prior = seen_a8.setdefault(s.anchor8, s.section_anchor)
+        if prior != s.section_anchor:
+            out.append(finding("C5-domains", s.doc_path, f"anchor8 collision: {s.anchor8}"))
+    for (dp, hp), n in seen_hp.items():
+        if n > 1:
+            out.append(finding("C5-domains", dp, f"duplicate heading_path among indexed sections: {hp!r}"))
+    for domain, refs in domains.items():
+        if len(refs) != len(set(refs)):
+            out.append(finding("C5-domains", "registry", f"duplicate anchors in domain {domain!r}"))
+        for ref in refs:
+            if idx.resolve(ref) is None:
+                out.append(finding("C5-domains", ref.split("#", 1)[0],
+                                   f"domain {domain!r}: anchor does not resolve (stale/ambiguous): "
+                                   f"{ref.split('#', 1)[-1]!r}"))
+    return out
+
+
 def key(f: dict) -> str:
     return f"{f['check']}|{f['doc']}|{f['detail']}"
 
@@ -165,7 +204,8 @@ def main() -> int:
     findings = (c1_event_tokens(reg, docs)
                 + c2_public_concepts(reg, docs_by_name)
                 + c3_quarantine(reg, docs_by_name)
-                + c4_docset(docs_by_name))
+                + c4_docset(docs_by_name)
+                + c5_domains(reg))
 
     if args.update_baseline:
         BASELINE.write_text(json.dumps(

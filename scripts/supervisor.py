@@ -164,6 +164,11 @@ def run_tick(conn, *, kawa: Kawa, node_ref: str, state: dict, status_file: str,
     """One tick against an open connection. Factored for the test suite — main()
     wraps it with connect(), the watchdog ping, and the loud exit code."""
     ready = read_ready(conn)
+    conn.commit()   # release the read txn NOW — a resident loop must never sit
+    # idle-in-transaction between ticks (found live 2026-08-17: a no-new-work tick
+    # left the read txn open for hours, pinning vacuum xmin and wedging any
+    # ACCESS EXCLUSIVE — projection rebuild — behind it, which in turn queued
+    # every later tick's reads behind the waiting lock: a full standstill)
     ready_refs = [w["work_ref"] for w in ready]
     new = [w for w in ready if w["work_ref"] not in state["surfaced"]]
 

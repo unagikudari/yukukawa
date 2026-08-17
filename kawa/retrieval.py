@@ -119,6 +119,29 @@ class Record:
 
 
 @dataclass(frozen=True)
+class DocSectionRecord:
+    """#156 Phase A: a normative doc-section candidate. Satisfies the Record field
+    contract (shared fields render everywhere Record does) plus typed provenance —
+    no metadata is regex-packed into summary/path. `ref` uses the content-independent
+    section anchor (anchor8); heading renames mint a new anchor and stale refs
+    surface as a stated `section_moved` orientation note, never silently."""
+    ref: str                               # <doc_path>#<anchor8>
+    kind: str                              # 'normative_section'
+    summary: str                           # bounded excerpt (<=320 chars, deterministic)
+    backend: str                           # 'repository'
+    class_id: str
+    path: str                              # doc_path / heading_path (display)
+    path_truncated: bool = False
+    standing: str | None = None            # N/A for sections; kept for field-contract parity
+    doc_path: str = ""
+    heading_path: str = ""
+    authority_status: str = "current"      # matrix-derived; read-through flags ride here
+    content_digest: str = ""
+    commit: str = ""
+    basis: str = "domain"                  # domain | lexical (derived-facet basis rule)
+
+
+@dataclass(frozen=True)
 class FrontierEntry:
     source_node: str
     relation: str
@@ -138,6 +161,9 @@ class Bundle:
     vector_frontier: list[str] = field(default_factory=list)            # index lag / model, stated (§10.3)
     viewer_scopes: tuple[str, ...] = ()                                 # #146: the scope answered under
     scope_withheld: dict[str, int] = field(default_factory=dict)        # class_id -> count (no refs)
+    orientation: list[str] = field(default_factory=list)                # #156: stated orientation facts
+    #   (derived domains / UNMAPPED frontier / index source+commit / dirty docs /
+    #    precedent source boundary) — honesty statements, never candidate content
 
 
 # ---- phase 1: binding (state-dependent, honestly — bound refs become provenance) ----
@@ -190,7 +216,16 @@ _DISPATCH: dict[str, tuple[str, ...]] = {
     "work": ("anchor_lookup", "neighborhood"),
 }
 _BACKEND = {"anchor_lookup": "typed_sql", "standing": "typed_sql", "evidence": "typed_sql",
-            "neighborhood": "traversal", "lexical": "fts", "vector": "vector"}
+            "neighborhood": "traversal", "lexical": "fts", "vector": "vector",
+            "repository_normative": "repository", "precedent": "typed_sql"}
+
+# #156 Phase A: orientation profiles — compile-time query-class mixes selected from
+# the anchor's kind (internal RetrievalPlan behavior, not public surface). The
+# sideband is ADDITIVE: Intent.limit bounds the base structural pool exactly as
+# before; these rows ride on top (total <= limit + sideband; #156 sketch 6).
+_PROFILE_OF = {"work": "design_change", "plan": "design_change",
+               "event": "design_change", "claim_event": "adversarial_review"}
+_SIDEBAND = {"design_change": (4, 2), "adversarial_review": (6, 3)}   # (normative, precedent) rows
 
 
 def compile_plan(bound: BoundIntent) -> RetrievalPlan:
@@ -219,12 +254,23 @@ def compile_plan(bound: BoundIntent) -> RetrievalPlan:
     # classes in dispatch order (anchor first). Global cap == sum of class budgets.
     n = len(purposes)
     base, rem = divmod(max(bound.intent.limit, n), n)
-    classes = tuple(
+    classes = [
         QueryClass(class_id=f"q{i}-{purpose}", purpose=purpose, backend=_BACKEND[purpose],
                    budget=base + (1 if i < rem else 0), fts_reason=reason)
         for i, (purpose, reason) in enumerate(purposes)
-    )
-    return RetrievalPlan(bound=bound, query_classes=classes)
+    ]
+    # #156 Phase A sideband — appended AFTER the base split so structural budgets are
+    # byte-identical to pre-Phase-A (regression-tested). Anchored intents only.
+    if bound.anchor_kind:
+        profile = _PROFILE_OF[bound.anchor_kind]
+        norm_rows, prec_rows = _SIDEBAND[profile]
+        i = len(classes)
+        classes.append(QueryClass(class_id=f"q{i}-repository_normative",
+                                  purpose="repository_normative", backend="repository",
+                                  budget=norm_rows))
+        classes.append(QueryClass(class_id=f"q{i + 1}-precedent", purpose="precedent",
+                                  backend="typed_sql", budget=prec_rows))
+    return RetrievalPlan(bound=bound, query_classes=tuple(classes))
 
 
 # ---- phase 3: execute ----
@@ -246,7 +292,10 @@ def retrieve(conn: psycopg.Connection, intent: Intent,
             records = _exec_vector(conn, plan, qc, bundle, embedder, viewer_scopes)
         else:
             records = _EXECUTORS[qc.purpose](conn, plan, qc, bundle, viewer_scopes)
-        if qc.backend not in ("fts", "vector"):
+        if qc.backend not in ("fts", "vector") and qc.purpose not in (
+                "repository_normative", "precedent"):
+            # #156: sideband classes never feed the structural-underflow decision —
+            # pre-Phase-A fallback behavior is byte-identical.
             structural_total += len(records)
         if records:
             bundle.sections[qc.class_id] = records
@@ -707,10 +756,201 @@ def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
     return out
 
 
+# ---- #156 Phase A: principle-aware orientation executors ----
+
+def _registry_domains() -> dict[str, list[str]]:
+    import json
+    from pathlib import Path
+    reg = Path(__file__).resolve().parents[1] / "registry" / "vocabulary.json"
+    try:
+        return json.loads(reg.read_text()).get("domains", {})
+    except OSError:
+        return {}
+
+
+_SECTION_INDEX_CACHE: dict[str, object] = {}      # commit -> SectionIndex (sections immutable per commit)
+
+
+def _section_index():  # type: ignore[no-untyped-def]
+    """Answer-time index acquisition (#156 sketch 4): resolve HEAD, reuse the
+    per-commit cached sections, and re-check working-tree dirtiness on every call
+    (dirtiness is the only non-commit-determined input). Unavailable git/checkout
+    is a stated skip, never an error."""
+    from pathlib import Path
+
+    from kawa.repo_sections import build_index
+    repo = Path(__file__).resolve().parents[1]
+    try:
+        idx = build_index(repo)
+    except Exception:
+        return None
+    return idx
+
+
+def _derive_domains(cur: psycopg.Cursor, b: BoundIntent,
+                    scopes: list[str]) -> tuple[list[str], str]:
+    """#156 sketch 2 — deterministic per-anchor precedence over TYPED declarations
+    (never raw text). Returns (domains, basis_note). Work: own domain token, else
+    the owning Plan's token. (subject_ref aggregate typing awaits a subject
+    registry — until then it contributes no signal, honestly.) Plan: own token,
+    else union of its Works' tokens. Claim/event: tokens of the plan/work events
+    in its based_on lineage. Nothing found => UNMAPPED (stated frontier)."""
+    ev_in = _IN_SCOPE.format(a="e")
+
+    def plan_domain(plan_ref: str) -> str | None:
+        cur.execute(
+            "SELECT p.domain FROM event_plan p JOIN events e ON e.event_id=p.event_id "
+            f"WHERE p.plan_ref=%s AND p.domain IS NOT NULL AND {ev_in} "
+            "ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1", (plan_ref, scopes))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    if b.anchor_kind == "work":
+        cur.execute(
+            "SELECT w.domain, w.plan_ref FROM event_work w JOIN events e ON e.event_id=w.event_id "
+            f"WHERE w.work_ref=%s AND {ev_in} ORDER BY e.origin_node, e.origin_seq DESC LIMIT 1",
+            (b.anchor_ref, scopes))
+        row = cur.fetchone()
+        if row:
+            own, plan_ref = row
+            if own:
+                return [own], "work.domain"
+            pd = plan_domain(plan_ref)
+            if pd:
+                return [pd], "plan.domain (lineage)"
+        return [], "UNMAPPED"
+    if b.anchor_kind == "plan":
+        pd = plan_domain(b.anchor_ref)
+        if pd:
+            return [pd], "plan.domain"
+        cur.execute(
+            "SELECT DISTINCT w.domain FROM event_work w JOIN events e ON e.event_id=w.event_id "
+            f"WHERE w.plan_ref=%s AND w.domain IS NOT NULL AND {ev_in}", (b.anchor_ref, scopes))
+        ds = sorted(r[0] for r in cur.fetchall())
+        return (ds, "works.domain (lineage)") if ds else ([], "UNMAPPED")
+    if b.anchor_kind in ("claim_event", "event"):
+        cur.execute(
+            "SELECT l.target_ref FROM event_links l WHERE l.resolved AND l.relation='based_on' "
+            "AND l.source_ref=%s ORDER BY l.target_ref", (b.anchor_ref,))
+        targets = [r[0] for r in cur.fetchall()]
+        ds: set[str] = set()
+        for t in targets:
+            cur.execute(
+                "SELECT w.domain FROM event_work w JOIN events e ON e.event_id=w.event_id "
+                f"WHERE w.event_id=%s AND w.domain IS NOT NULL AND {ev_in}", (t, scopes))
+            ds.update(r[0] for r in cur.fetchall())
+            cur.execute(
+                "SELECT p.domain FROM event_plan p JOIN events e ON e.event_id=p.event_id "
+                f"WHERE p.event_id=%s AND p.domain IS NOT NULL AND {ev_in}", (t, scopes))
+            ds.update(r[0] for r in cur.fetchall())
+        return (sorted(ds), "based_on lineage") if ds else ([], "UNMAPPED")
+    return [], "UNMAPPED"
+
+
+_STOPWORDS = frozenset({"this", "that", "with", "from", "have", "must", "should", "when",
+                        "which", "where", "into", "only", "over", "such", "then", "than"})
+
+
+def _exec_repository_normative(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
+                               bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
+    b = plan.bound
+    scopes = list(viewer_scopes)
+    idx = _section_index()
+    if idx is None:
+        bundle.skipped_classes.append(f"{qc.class_id} (repository index unavailable)")
+        return []
+    bundle.orientation.append(f"index source: {idx.source} @ {idx.commit[:12]}")
+    for doc in idx.dirty_docs:
+        bundle.orientation.append(f"repository_dirty: {doc} (sections withheld)")
+    with conn.cursor() as cur:
+        domains, basis_note = _derive_domains(cur, b, scopes)
+    bundle.orientation.append(
+        f"domain: {', '.join(domains)} ({basis_note})" if domains else f"domain: UNMAPPED ({basis_note})")
+    mapping = _registry_domains()
+    out: list[Record] = []
+    seen: set[str] = set()
+    # primary channel: domain-mapped sections, registry order, dedup across domains
+    for d in domains:
+        for anchor_ref in mapping.get(d, []):
+            if len(out) >= qc.budget:
+                break
+            section = idx.resolve(anchor_ref)
+            if section is None:
+                bundle.orientation.append(f"section_moved: {anchor_ref} (stale mapping — lint should fail)")
+                continue
+            if section.section_anchor in seen:
+                continue
+            seen.add(section.section_anchor)
+            out.append(DocSectionRecord(
+                ref=f"{section.doc_path}#{section.anchor8}", kind="normative_section",
+                summary=section.excerpt, backend=qc.backend, class_id=qc.class_id,
+                path=f"{section.doc_path} / {section.heading_path}",
+                doc_path=section.doc_path, heading_path=section.heading_path,
+                content_digest=section.content_digest, commit=idx.commit, basis="domain"))
+    # secondary channel: lexical ADDITIONS over anchor text terms vs section headings —
+    # labeled basis:lexical, never counted as domain coverage (#156 sketch 2)
+    text = (b.unbound_text or b.intent.text_terms or "")
+    terms = {w for w in (t.strip(".,;:()`'\"").lower() for t in text.split())
+             if len(w) >= 4 and w not in _STOPWORDS}
+    if terms and len(out) < qc.budget:
+        for section in idx.sections:
+            if len(out) >= qc.budget:
+                break
+            if section.section_anchor in seen:
+                continue
+            hay = section.heading.lower()
+            if any(t in hay for t in terms):
+                seen.add(section.section_anchor)
+                out.append(DocSectionRecord(
+                    ref=f"{section.doc_path}#{section.anchor8}", kind="normative_section",
+                    summary=section.excerpt, backend=qc.backend, class_id=qc.class_id,
+                    path=f"{section.doc_path} / {section.heading_path}",
+                    doc_path=section.doc_path, heading_path=section.heading_path,
+                    content_digest=section.content_digest, commit=idx.commit, basis="lexical"))
+    return out
+
+
+def _exec_precedent(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
+                    bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
+    """#156 sketch 9: prior outcomes from INTERNAL authoritative state only — the
+    event log's result.recorded rows for the anchor's work/plan lineage. The source
+    boundary is stated; GitHub-resident discussion is a measured miss (Phase B)."""
+    b = plan.bound
+    scopes = list(viewer_scopes)
+    bundle.orientation.append("precedent source: event log (internal); external discussion threads not consulted")
+    ev_in = _IN_SCOPE.format(a="e")
+    out: list[Record] = []
+    with conn.cursor() as cur:
+        if b.anchor_kind == "work":
+            work_refs = [b.anchor_ref]
+        elif b.anchor_kind == "plan":
+            cur.execute("SELECT DISTINCT work_ref FROM event_work WHERE plan_ref=%s "
+                        "ORDER BY work_ref", (b.anchor_ref,))
+            work_refs = [r[0] for r in cur.fetchall()]
+        else:
+            work_refs = []
+        for wr in work_refs:
+            if len(out) >= qc.budget:
+                break
+            cur.execute(
+                "SELECT r.event_id, r.outcome FROM event_result r "
+                "JOIN events e ON e.event_id=r.event_id "
+                f"WHERE r.work_ref=%s AND {ev_in} "
+                "ORDER BY e.origin_node, e.origin_seq DESC LIMIT %s",
+                (wr, scopes, qc.budget - len(out)))
+            for eid, outcome in cur.fetchall():
+                out.append(Record(ref=eid, kind="precedent", summary=f"{wr}: {outcome}",
+                                  backend=qc.backend, class_id=qc.class_id,
+                                  path=f"{b.anchor_ref} ~precedent~ {wr}"))
+    return out
+
+
 _EXECUTORS = {
     "anchor_lookup": _exec_anchor,
     "standing": _exec_standing,
     "evidence": _exec_evidence,
     "neighborhood": _exec_neighborhood,
     "lexical": _exec_lexical,
+    "repository_normative": _exec_repository_normative,
+    "precedent": _exec_precedent,
 }

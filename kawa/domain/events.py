@@ -67,10 +67,15 @@ class PlanCreated(_Payload):
     scope: str | None = None
     constraints: list[str] | None = None
     expected_observations: list[str] | None = None       # deliberately not expected_result (§6.1)
+    # #156 Phase A (additive): managed domain token — the structural source for
+    # principle-aware orientation. Validated fail-closed against the registry at
+    # emit; scope above is display-only and is NOT a domain source (r3-F1).
+    domain: str | None = None
 
     @model_serializer(mode="wrap")
     def _ser(self, handler):  # type: ignore[no-untyped-def]
-        return _drop_unset_step4_keys(handler(self), ("scope", "constraints", "expected_observations"))
+        return _drop_unset_step4_keys(handler(self), ("scope", "constraints", "expected_observations",
+                                                      "domain"))
 
 
 class PlanLifecycleChanged(_Payload):
@@ -91,10 +96,13 @@ class WorkDerived(_Payload):
     objective: str | None = None
     constraints: list[str] | None = None
     expected_observations: list[str] | None = None
+    # #156 Phase A (additive): managed domain token, same contract as PlanCreated.domain.
+    domain: str | None = None
 
     @model_serializer(mode="wrap")
     def _ser(self, handler):  # type: ignore[no-untyped-def]
-        return _drop_unset_step4_keys(handler(self), ("objective", "constraints", "expected_observations"))
+        return _drop_unset_step4_keys(handler(self), ("objective", "constraints", "expected_observations",
+                                                      "domain"))
 
 
 class WorkRetired(_Payload):

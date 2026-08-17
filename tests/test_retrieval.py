@@ -217,7 +217,10 @@ def test_console_search_screen_renders_bundle(conn, k) -> None:  # type: ignore[
 def test_budget_apportionment_deterministic(conn, k) -> None:  # type: ignore[no-untyped-def]
     c = k.record_claim("x")
     plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10), viewer_scopes=FLEET))
-    budgets = [q.budget for q in plan.query_classes]
+    # Lock 3 governs the STRUCTURAL pool; the #156 sideband is additive on top and
+    # deliberately outside this invariant (its algebra is tested in test_phase_a_orientation).
+    budgets = [q.budget for q in plan.query_classes
+               if q.purpose not in ("repository_normative", "precedent")]
     assert sum(budgets) >= 10 and max(budgets) - min(budgets) <= 1   # floor split + remainder
     plan2 = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10), viewer_scopes=FLEET))
     assert plan == plan2

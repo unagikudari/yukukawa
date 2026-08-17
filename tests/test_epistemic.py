@@ -244,7 +244,7 @@ def test_dependency_replay_order_independence(conn, k) -> None:  # type: ignore[
     k.derive_work("w", "p", "implement")
     k.declare_dependency("w", "dep", "ALL")                        # declaration AFTER result
     incremental = _dep_state(conn, "w", "dep")
-    rebuild(conn)                                                  # replay = (origin, seq) order
+    rebuild(conn)                                                  # replay = recorded_at (application) order
     assert _dep_state(conn, "w", "dep") == incremental == "satisfied"
 
 
