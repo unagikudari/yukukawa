@@ -11,6 +11,8 @@ on:
       - "registry/**"
       - "README.md"
       - "scripts/lint_vocabulary_drift.py"
+      - "scripts/lint_publication_boundary.py"
+      - "registry/publication-baseline.json"
       - ".github/workflows/drift-check.yml"
   push:
     branches: [main, "agent/**", "spec/**"]
@@ -25,3 +27,5 @@ jobs:
           python-version: "3.12"
       - name: Vocabulary & document-drift lint
         run: python3 scripts/lint_vocabulary_drift.py
+      - name: publication-boundary lint (#152 gate-1)
+        run: python3 scripts/lint_publication_boundary.py
