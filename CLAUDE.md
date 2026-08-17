@@ -14,6 +14,12 @@ cd ~/kawa && KAWA_DSN=dbname=kawa .venv/bin/python scripts/brief.py
 
 brief は open plan・roadmap 位置・**次の actionable Work** を返す。それが再開点。`plan-roadmap` が v0.5 §23 の 13-step 実装ロードマップ (`docs/specification-v0.5.md` が現行 consolidated spec)。
 
+## checkout 規律 (2026-08-17 の衝突実害から機械化)
+
+**`~/kawa` は service checkout — main 固定・pull only・編集禁止。** console / supervisor / timers がここから稼働しており、branch 切替はサービスを未レビューコードに載せ替え、複数セッションの同時編集は test flapping を起こす (2026-08-17 実害: 並行編集で suite が flap し、一時 fail 状態の push が発生)。`.git/hooks/pre-commit` が ~/kawa での commit を機械的に拒否する。
+
+実装は **worktree で**: `git worktree add ~/wt-kawa-<slug> -b <branch>` → PR → merge 後に ~/kawa で `git pull` + 必要なら service restart。memory-broker の dual-checkout 教義と同型。
+
 ## 開発の型 (この repo の規律 — 逸脱しない)
 
 各 step は **plan-first + 二段の独立敵対レビュー**を通してから実装する:
