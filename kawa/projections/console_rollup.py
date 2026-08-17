@@ -129,8 +129,40 @@ def refresh_evidence_provenance(cur: psycopg.Cursor) -> None:
         "LEFT JOIN events te ON te.event_id = el.target_ref")
 
 
+def refresh_fleet_node_facet(cur: psycopg.Cursor) -> None:
+    """Latest telemetry Observation per (node, predicate, qualifier) — §189 §C.
+
+    Registry-gated: only predicates in facet_registry.REGISTRY are facets;
+    anything else in the observation stream is ignored here (no vocabulary
+    drift by accident). The qualifier travels as the fixed-form leading
+    field `qualifier=<v>` at the END of source_revision (trailing so
+    space-containing qualifiers like mount paths survive; captured to
+    end-of-string).
+    Latest-wins ordering is the frozen §C chain:
+    occurred_at DESC, fetched_at DESC, (origin_node, origin_seq) DESC."""
+    from kawa.projections.facet_registry import REGISTRY
+    cur.execute("DELETE FROM fleet_node_facet")
+    cur.execute(
+        "INSERT INTO fleet_node_facet (node_ref, predicate, qualifier, value_number, "
+        "value_text, value_bool, unit, occurred_at, fetched_at, source_ref, source_event_id) "
+        "SELECT DISTINCT ON (e.origin_node, o.predicate, q.qual) "
+        "e.origin_node, o.predicate, q.qual, o.value_number, o.value_text, o.value_bool, "
+        "%s::jsonb ->> o.predicate, o.occurred_at, o.fetched_at, o.source_ref, o.event_id "
+        "FROM event_observation o JOIN events e ON e.event_id = o.event_id "
+        "CROSS JOIN LATERAL (SELECT coalesce(substring(o.source_revision "
+        "  FROM 'qualifier=(.*)$'), '') AS qual) q "
+        "WHERE o.predicate = ANY(%s) AND o.occurred_at IS NOT NULL "
+        "AND o.fetched_at IS NOT NULL AND o.source_ref IS NOT NULL "
+        "ORDER BY e.origin_node, o.predicate, q.qual, "
+        # occurred_at/fetched_at are TEXT by design (payload-digest stability);
+        # cast for ordering or subsecond forms sort wrong ('Z' > '.', review (c))
+        "o.occurred_at::timestamptz DESC, o.fetched_at::timestamptz DESC, e.origin_seq DESC",
+        (__import__("json").dumps({k: v.unit for k, v in REGISTRY.items()}),
+         list(REGISTRY.keys())))
+
+
 def _register_projection_state(cur: psycopg.Cursor) -> None:
-    for name in ("fleet_node", "situation_rollup", "evidence_provenance"):
+    for name in ("fleet_node", "situation_rollup", "evidence_provenance", "fleet_node_facet"):
         cur.execute(
             "INSERT INTO projection_state (projection_name, schema_version, last_event_id, "
             "last_recorded_at, state) "
@@ -157,6 +189,7 @@ def refresh_console_projections(conn: psycopg.Connection) -> None:
                          "connection (autocommit=False)")
     with conn.cursor() as cur:
         refresh_fleet_node(cur)
+        refresh_fleet_node_facet(cur)
         refresh_evidence_provenance(cur)
         _register_projection_state(cur)     # before the rollup, so the
         refresh_situation_rollup(cur)       # FRESHNESS card counts this refresh

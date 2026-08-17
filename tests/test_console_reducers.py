@@ -186,6 +186,7 @@ def test_projection_state_registers_all_with_cursor(conn):  # type: ignore[no-un
                     "FROM projection_state ORDER BY 1")
         assert cur.fetchall() == [("evidence_provenance", "current", True),
                                   ("fleet_node", "current", True),
+                                  ("fleet_node_facet", "current", True),
                                   ("situation_rollup", "current", True)]
 
 

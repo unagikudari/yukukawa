@@ -1,0 +1,12 @@
+# Self-telemetry collector (#189 rev 3 step 2): this node's cpu/mem/disk/gpu
+# as Observations. Failure semantics per §B — absence or refusal, never zero.
+[Unit]
+Description=kawa node telemetry collector — deterministic self-observations
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/kawa
+Environment=KAWA_DSN=dbname=kawa
+Environment=KAWA_NODE=panoplia
+TimeoutStartSec=2m
+ExecStart=%h/kawa/.venv/bin/python scripts/collect_node_telemetry.py

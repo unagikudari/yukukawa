@@ -89,6 +89,12 @@ def _screen_fleet(conn: psycopg.Connection) -> str:
                     "last_origin_seq, last_event_at, updated_at "
                     "FROM fleet_node ORDER BY node_ref")
         rows = cur.fetchall()
+        cur.execute("SELECT node_ref, predicate, qualifier, value_number, value_text, "
+                    "occurred_at FROM fleet_node_facet ORDER BY node_ref, predicate, qualifier")
+        facet_rows = cur.fetchall()
+    facets_by_node: dict = {}
+    for node_ref, pred, qual, num, txt, at in facet_rows:
+        facets_by_node.setdefault(node_ref, []).append((pred, qual, num, txt, at))
     if not rows:
         return ('<section class="card"><h2>Fleet</h2><p class="obj">fleet_node is empty — '
                 'no refresh has run yet. Nothing is invented in its place.</p></section>')
@@ -116,9 +122,13 @@ def _screen_fleet(conn: psycopg.Connection) -> str:
             chip("WKL", wkl, wkl_at, f' ({html.escape(wkl_d)})' if wkl_d else "", stale=siblings_stale),
             chip("REP", rep, rep_at, f' lag={rep_lag}' if rep_lag is not None else "", stale=siblings_stale),
         ]
+        tele = _facet_lines(facets_by_node.get(node, []))
+        if not tele:
+            tele = '<span class="facets mut">no telemetry collector on this node</span>'
         out.append(f'<div class="wi fleet"><span class="wr">{html.escape(node)}</span>'
                    f'<span class="meta">seq {seq} · last event {html.escape(str(last_at)[:19])}</span>'
-                   f'<span class="chips">{"".join(chips)}</span></div>')
+                   f'<span class="chips">{"".join(chips)}</span>'
+                   f'<span class="chips">{tele}</span></div>')
     out.append(f'</div><p class="asof">as-of {html.escape(str(rows[0][12])[:19])} · '
                'refreshed by rebuild / supervisor tick</p></section>')
     return "\n".join(out)
@@ -175,6 +185,66 @@ def _screen_evidence(conn: psycopg.Connection, query: dict | None = None) -> str
                    f'<div class="work">{body}</div>'
                    '<p class="asof">every edge above is event-derived (link.asserted); '
                    'no inferred edge exists to draw.</p></section>')
+
+
+def _fmt_bytes(n: float) -> str:
+    for div, suf in ((1 << 40, "TiB"), (1 << 30, "GiB"), (1 << 20, "MiB")):
+        if n >= div:
+            return f"{n / div:.1f}{suf}"
+    return f"{int(n)}B"
+
+
+def _age(ts: str) -> str:
+    import datetime as _dt
+    try:
+        then = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return "?"
+    secs = int((_dt.datetime.now(_dt.timezone.utc) - then).total_seconds())
+    if secs < 90:
+        return f"{secs}s ago"
+    if secs < 5400:
+        return f"{secs // 60}m ago"
+    return f"{secs // 3600}h ago"
+
+
+def _facet_lines(facets: list) -> str:
+    """One compact telemetry line per node from fleet_node_facet rows
+    (predicate, qualifier, value_number, value_text, occurred_at).
+    Values render with their AGE and never color by value (#189 §F)."""
+    by_pred: dict = {}
+    newest = None
+    for pred, qual, num, txt, at in facets:
+        by_pred.setdefault(pred, {})[qual] = num if num is not None else txt
+        newest = max(newest, at) if newest else at
+    parts = []
+    if "node_cpu_load1" in by_pred:
+        cores = by_pred.get("node_cpu_cores", {}).get("")
+        parts.append(f"cpu {by_pred['node_cpu_load1']['']:.2f}"
+                     + (f"/{int(cores)}c" if cores else ""))
+    if "node_mem_available_bytes" in by_pred and "node_mem_total_bytes" in by_pred:
+        parts.append(f"mem {_fmt_bytes(by_pred['node_mem_available_bytes'][''])} free"
+                     f"/{_fmt_bytes(by_pred['node_mem_total_bytes'][''])}")
+    for mount, free in sorted(by_pred.get("node_disk_free_bytes", {}).items()):
+        total = by_pred.get("node_disk_total_bytes", {}).get(mount)
+        parts.append(f"{html.escape(mount)} {_fmt_bytes(free)} free"
+                     + (f"/{_fmt_bytes(total)}" if total else ""))
+    for idx, model in sorted(by_pred.get("node_gpu_model", {}).items()):
+        used = by_pred.get("node_gpu_vram_used_bytes", {}).get(idx)
+        total = by_pred.get("node_gpu_vram_total_bytes", {}).get(idx)
+        vram = (f" {_fmt_bytes(used)}/{_fmt_bytes(total)}"
+                if used is not None and total is not None else "")
+        parts.append(f"gpu{html.escape(idx)} {html.escape(str(model))}{vram}")
+    for idx in sorted(set(by_pred.get("node_gpu_vram_total_bytes", {}))
+                      - set(by_pred.get("node_gpu_model", {}))):
+        used = by_pred.get("node_gpu_vram_used_bytes", {}).get(idx)
+        total = by_pred["node_gpu_vram_total_bytes"][idx]
+        if used is not None:
+            parts.append(f"gpu{html.escape(idx)} {_fmt_bytes(used)}/{_fmt_bytes(total)}")
+    if not parts:
+        return ""
+    return ('<span class="facets">' + " · ".join(parts)
+            + f'<span class="fage"> · {html.escape(_age(newest or ""))}</span></span>')
 
 
 def _screen_route(conn: psycopg.Connection) -> str:
@@ -472,6 +542,9 @@ border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .wi.ev{{grid-template-columns:auto auto auto 1fr;gap:8px}}
 .rel{{color:var(--accent);font-family:ui-monospace,monospace;font-size:11px;white-space:nowrap}}
 .unk-kind{{color:var(--mut);font-style:italic}}
+.facets{{font-family:ui-monospace,monospace;font-size:11px;color:var(--tx)}}
+.facets.mut{{color:var(--mut);font-style:italic}}
+.fage{{color:var(--mut)}}
 .chips{{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;justify-self:start;padding:2px 0 4px}}
 .conf{{color:var(--crit)}}.mut{{color:var(--mut)}}
 table.disp{{width:100%;border-collapse:collapse;font-size:12px}}

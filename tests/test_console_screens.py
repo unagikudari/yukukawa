@@ -186,7 +186,7 @@ def test_freshness_surfaced_on_every_card(conn):  # type: ignore[no-untyped-def]
 # --- work constraint: screens read projections only, never raw event tables ---
 
 def test_screens_read_projections_only():  # type: ignore[no-untyped-def]
-    projections = {"situation_rollup", "fleet_node", "current_plans", "current_work"}
+    projections = {"situation_rollup", "fleet_node", "fleet_node_facet", "current_plans", "current_work"}
     for fn in (render_mod._screen_situation, render_mod._screen_fleet,
                render_mod._header_stats):
         # case-sensitive: SQL in this module writes FROM/JOIN uppercase; prose
