@@ -39,15 +39,12 @@ def run_bandit() -> bool:
 
 def run_pip_audit() -> bool:
     print("[2/3] Running pip-audit on dependencies...")
-    cmd = [
-        sys.executable, "-m", "pip_audit",
-        "--desc",
-        "--ignore-vuln", "PYSEC-2026-196",
-        "--ignore-vuln", "PYSEC-2026-1795",
-        "--ignore-vuln", "PYSEC-2026-1796",
-        "--ignore-vuln", "PYSEC-2026-2875",
-        "--ignore-vuln", "PYSEC-2026-2876",
-    ]
+    # NO standing suppressions (PR #157 review F1: the original five --ignore-vuln
+    # entries matched nothing in the current environment — dead weight today, a
+    # silent blind spot the day those exact vulns enter the tree). Policy: any
+    # future --ignore-vuln REQUIRES an inline comment naming the package, the
+    # reason it is acceptable, and a revisit-by date.
+    cmd = [sys.executable, "-m", "pip_audit", "--desc"]
     res = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
     if res.returncode != 0:
         print("❌ pip-audit found dependency vulnerabilities:")
@@ -77,10 +74,19 @@ def check_domain_security_invariants() -> bool:
                 if "BEGIN PRIVATE KEY" in val or "BEGIN OPENSSH PRIVATE KEY" in val:
                     errors.append(f"{py_file}:{node.lineno}: Hardcoded private key literal detected.")
 
-        # Check: transport urlopen scheme validation in adapters
-        if py_file.name == "replication_http.py":
-            if "not base_url.startswith((" not in content:
-                errors.append(f"{py_file}: Missing base_url scheme validation before urlopen.")
+        # Check: outbound HTTP is confined to the one transport adapter (PR #157
+        # review F2: the old source-string check was tautological — it asserted a
+        # literal was still present, broke on refactors, and was satisfied by a
+        # comment). The REAL invariant: urlopen call sites inside kawa/ are
+        # allowlisted to adapters/replication_http.py; new outbound HTTP anywhere
+        # else in the domain fails the gate.
+        rel = py_file.relative_to(kawa_dir).as_posix()
+        if rel != "adapters/replication_http.py":
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Attribute) and node.attr == "urlopen":
+                    errors.append(
+                        f"{py_file}:{node.lineno}: urlopen outside the transport "
+                        "adapter allowlist (adapters/replication_http.py)")
 
     if errors:
         print("❌ Domain security invariant checks failed:")
