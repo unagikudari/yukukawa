@@ -189,13 +189,18 @@ def _facially_valid_successor(store: AuthorityProofStore, cfg: AuthorityConfigur
 
 
 def _facially_valid_genesis(cfg: AuthorityConfiguration, keys: PublicKeyRegistry) -> bool:
-    """A REAL genesis claim: bound, epoch 0, founding-quorum-signed (BC-1). Unsigned junk
-    is noise, never an `authority_genesis_conflict` rival (the same anti-griefing rule)."""
+    """A REAL genesis claim: bound, epoch 0, signed by ALL founding members (BC-1, the
+    #164 unanimity reading). Founding is one-shot unanimous — quorum governs operation
+    and succession, never creation: a quorum-only genesis would let its author CONSCRIPT
+    non-consenting principals into the accountable signer pool (fabricated consent at the
+    membership level, the #134 theme), with their keys counting toward every later quorum
+    ceiling. Unsigned or partially-signed junk is noise, never an
+    `authority_genesis_conflict` rival (the same anti-griefing rule)."""
     if not _bound(cfg, cfg.configuration_digest) or cfg.authority_epoch != 0:
         return False
     signers = _valid_signers(cfg.succession_proof, cfg.configuration_digest,
                              cfg.members, keys)
-    return signers is not None and len(signers) >= cfg.quorum
+    return signers is not None and signers == set(cfg.members)
 
 
 def verify_configuration(store: AuthorityProofStore, configuration_digest: str,
