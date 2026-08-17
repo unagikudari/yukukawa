@@ -113,8 +113,24 @@ def refresh_situation_rollup(cur: psycopg.Cursor) -> None:
         (_FRESHNESS_GAP, len(rows), len(nongreen), _residue(nongreen)))
 
 
+def refresh_evidence_provenance(cur: psycopg.Cursor) -> None:
+    """1:1 projection of link.asserted events (step 4): event-derived ONLY —
+    the provenance column's CHECK admits nothing else, and no inference rule
+    exists to widen it. Endpoint kinds are resolved here (reducers may read
+    the log; screens may not); an endpoint not held locally stays NULL."""
+    cur.execute("DELETE FROM evidence_provenance")
+    cur.execute(
+        "INSERT INTO evidence_provenance (link_event_id, source_ref, relation, target_ref, "
+        "recorded_at, actor_ref, source_kind, target_kind) "
+        "SELECT el.event_id, el.source_ref, el.relation, el.target_ref, "
+        "e.recorded_at, e.actor_ref, se.kind, te.kind "
+        "FROM event_link el JOIN events e ON e.event_id = el.event_id "
+        "LEFT JOIN events se ON se.event_id = el.source_ref "
+        "LEFT JOIN events te ON te.event_id = el.target_ref")
+
+
 def _register_projection_state(cur: psycopg.Cursor) -> None:
-    for name in ("fleet_node", "situation_rollup"):
+    for name in ("fleet_node", "situation_rollup", "evidence_provenance"):
         cur.execute(
             "INSERT INTO projection_state (projection_name, schema_version, last_event_id, "
             "last_recorded_at, state) "
@@ -141,5 +157,6 @@ def refresh_console_projections(conn: psycopg.Connection) -> None:
                          "connection (autocommit=False)")
     with conn.cursor() as cur:
         refresh_fleet_node(cur)
+        refresh_evidence_provenance(cur)
         _register_projection_state(cur)     # before the rollup, so the
         refresh_situation_rollup(cur)       # FRESHNESS card counts this refresh

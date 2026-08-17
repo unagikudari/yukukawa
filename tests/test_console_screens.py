@@ -227,3 +227,42 @@ def test_partial_rollup_states_the_missing_dimension(conn):  # type: ignore[no-u
     page = render(conn, "/")
     assert "holds no row for: EPISTEMIC" in page    # absence stated, not painted over
     assert page.count('class="card dim"') == 4      # the four real rows still render
+
+
+# --- Evidence screen (step 4): chains render, absence renders as absence ---
+
+def _seed_link(conn):  # type: ignore[no-untyped-def]
+    k = Kawa(conn, identity=IdentityContext.from_local_runtime(
+        node_ref="test", actor_ref="pytest-screens"))
+    a = k.record_claim("evidence chain source")
+    b = k.record_claim("evidence chain target")
+    k.assert_link(a.event_id, "supports", b.event_id)
+    conn.commit()
+    refresh_console_projections(conn)
+    conn.commit()
+    return a, b
+
+
+def test_evidence_chain_renders_event_derived_only(conn):  # type: ignore[no-untyped-def]
+    a, b = _seed_link(conn)
+    page = render(conn, "/evidence", {"ref": [a.event_id]})
+    assert page is not None
+    assert "supports" in page and a.event_id[:20] in page and b.event_id[:20] in page
+    assert "claim.recorded" in page                                # endpoint kinds resolved
+    assert "event-derived" in page and "no inferred edge exists" in page
+
+
+def test_evidence_missing_provenance_is_stated_not_implied(conn):  # type: ignore[no-untyped-def]
+    _seed_link(conn)                                               # non-empty projection
+    ghost = "sha256:" + "f" * 64
+    page = render(conn, "/evidence", {"ref": [ghost]})
+    assert page is not None and "Missing provenance" in page
+    assert "no grounding chain" in page and "Absence, not an error" in page
+
+
+def test_evidence_default_view_lists_recent_edges_or_honest_empty(conn):  # type: ignore[no-untyped-def]
+    empty = render(conn, "/evidence")
+    assert empty is not None and "evidence_provenance is empty" in empty
+    _seed_link(conn)
+    page = render(conn, "/evidence")
+    assert page is not None and "Recent edges (1)" in page

@@ -118,6 +118,59 @@ def _screen_fleet(conn: psycopg.Connection) -> str:
     return "\n".join(out)
 
 
+def _screen_evidence(conn: psycopg.Connection, query: dict | None = None) -> str:
+    """Evidence / provenance chain (screen-map §2): reads evidence_provenance
+    ONLY. Every edge is event-derived (no inference rules exist — stated, not
+    implied); a ref with no rows renders MISSING provenance, never continuity."""
+    q = (query or {})
+    ref = q.get("ref", [""])[0].strip()
+    form = ('<section class="card"><h2>Evidence</h2>'
+            '<p class="obj">provenance chains from typed link.asserted events — '
+            'event-derived only; inferred edges: none exist (no inference rule is defined). '
+            'Absence is shown as absence.</p>'
+            '<form method="get" action="/evidence">'
+            f'<input name="ref" placeholder="event id (sha256:…)" value="{html.escape(ref)}" size="72"> '
+            '<button type="submit">trace</button></form></section>')
+
+    def edge_row(src, rel, tgt, skind, tkind, at, actor) -> str:
+        def end(r, k):
+            kind = html.escape(k) if k else '<span class="unk-kind">not held</span>'
+            return f'<span class="wr">{html.escape(r[:20])}…</span> <span class="pill">{kind}</span>'
+        return ('<div class="wi ev">' + end(src, skind)
+                + f'<span class="rel">—{html.escape(rel)}→</span>' + end(tgt, tkind)
+                + f'<span class="meta">{html.escape(str(at)[:19])} · {html.escape(actor)}'
+                '</span></div>')
+
+    with conn.cursor() as cur:
+        if not ref:
+            cur.execute("SELECT source_ref, relation, target_ref, source_kind, target_kind, "
+                        "recorded_at, actor_ref FROM evidence_provenance "
+                        "ORDER BY recorded_at DESC LIMIT 20")
+            rows = cur.fetchall()
+            if not rows:
+                return form + ('<section class="card"><p class="obj">evidence_provenance is '
+                               'empty — no links recorded (or no refresh has run). Nothing is '
+                               'invented in its place.</p></section>')
+            body = "".join(edge_row(*r) for r in rows)
+            return form + (f'<section class="card"><h2>Recent edges ({len(rows)})</h2>'
+                           f'<div class="work">{body}</div></section>')
+        cur.execute("SELECT source_ref, relation, target_ref, source_kind, target_kind, "
+                    "recorded_at, actor_ref FROM evidence_provenance "
+                    "WHERE source_ref = %s OR target_ref = %s ORDER BY recorded_at", (ref, ref))
+        direct = cur.fetchall()
+    if not direct:
+        return form + ('<section class="card"><h2>Missing provenance</h2><p class="obj">no '
+                       f'recorded evidence links touch <code>{html.escape(ref[:44])}…</code> — '
+                       'this ref has no grounding chain in the log. Absence, not an error.'
+                       '</p></section>')
+    body = "".join(edge_row(*r) for r in direct)
+    return form + (f'<section class="card"><h2>Chain for {html.escape(ref[:28])}… '
+                   f'({len(direct)} edge{"s" if len(direct) != 1 else ""})</h2>'
+                   f'<div class="work">{body}</div>'
+                   '<p class="asof">every edge above is event-derived (link.asserted); '
+                   'no inferred edge exists to draw.</p></section>')
+
+
 def _screen_route(conn: psycopg.Connection) -> str:
     with conn.cursor() as cur:
         cur.execute("SELECT plan_ref, objective, lifecycle FROM current_plans ORDER BY plan_ref")
@@ -274,6 +327,7 @@ SCREENS = [
     ("/", "Situation", _screen_situation, True),
     ("/route", "Route", _screen_route, True),
     ("/fleet", "Fleet", _screen_fleet, True),
+    ("/evidence", "Evidence", _screen_evidence, True),
     ("/dispatch", "Dispatch", _screen_dispatch, True),
     ("/search", "Search", _screen_search, True),
     ("/archive", "Archive", _screen_archive, True),
@@ -335,7 +389,8 @@ def render(conn: psycopg.Connection, path: str = "/", query: dict | None = None,
         return None
     label, fn, _impl = entry
     events, nplans, nwork, fresh = _header_stats(conn)
-    content = fn(conn, query) if fn is _screen_search else fn(conn)
+    content = (fn(conn, query) if fn in (_screen_search, _screen_evidence)
+               else fn(conn))
     return _TEMPLATE.format(active=html.escape(label), sidebar=_sidebar(path, host), content=content,
                             nplans=nplans, nwork=nwork, events=events, fresh=fresh)
 
@@ -395,6 +450,9 @@ border:1px solid var(--bd);border-radius:8px;padding:0 5px}}
 .resid{{word-break:break-all}}
 .asof{{margin:8px 0 0;color:var(--mut);font-size:10px;font-family:ui-monospace,monospace}}
 .wi.fleet{{grid-template-columns:120px 1fr;grid-auto-rows:auto}}
+.wi.ev{{grid-template-columns:auto auto auto 1fr;gap:8px}}
+.rel{{color:var(--accent);font-family:ui-monospace,monospace;font-size:11px;white-space:nowrap}}
+.unk-kind{{color:var(--mut);font-style:italic}}
 .chips{{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;justify-self:start;padding:2px 0 4px}}
 .conf{{color:var(--crit)}}.mut{{color:var(--mut)}}
 table.disp{{width:100%;border-collapse:collapse;font-size:12px}}

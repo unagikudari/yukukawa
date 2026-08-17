@@ -175,7 +175,7 @@ def test_refresh_refuses_autocommit_connections(conn):  # type: ignore[no-untype
         c.close()
 
 
-def test_projection_state_registers_both_with_cursor(conn):  # type: ignore[no-untyped-def]
+def test_projection_state_registers_all_with_cursor(conn):  # type: ignore[no-untyped-def]
     k = _kawa(conn)
     k.record_claim("cursor seed")
     conn.commit()
@@ -184,7 +184,8 @@ def test_projection_state_registers_both_with_cursor(conn):  # type: ignore[no-u
     with conn.cursor() as cur:
         cur.execute("SELECT projection_name, state, last_event_id IS NOT NULL "
                     "FROM projection_state ORDER BY 1")
-        assert cur.fetchall() == [("fleet_node", "current", True),
+        assert cur.fetchall() == [("evidence_provenance", "current", True),
+                                  ("fleet_node", "current", True),
                                   ("situation_rollup", "current", True)]
 
 
@@ -205,3 +206,33 @@ def test_refresh_is_idempotent_and_rebuild_includes_it(conn):  # type: ignore[no
         assert cur.fetchone()[0] == 5
         cur.execute("SELECT count(*) FROM fleet_node")
         assert cur.fetchone()[0] == 1
+
+
+def test_evidence_provenance_mirrors_links_one_to_one(conn):  # type: ignore[no-untyped-def]
+    k = _kawa(conn)
+    a = k.record_claim("evidence source claim")
+    b = k.record_claim("evidence target claim")
+    k.assert_link(a.event_id, "supports", b.event_id)
+    conn.commit()
+    refresh_console_projections(conn)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT source_ref, relation, target_ref, provenance, source_kind, "
+                    "target_kind, actor_ref FROM evidence_provenance")
+        rows = cur.fetchall()
+        cur.execute("SELECT count(*) FROM event_link")
+        assert cur.fetchone()[0] == len(rows)                     # 1:1, nothing added or dropped
+    assert rows == [(a.event_id, "supports", b.event_id, "event_derived",
+                     "claim.recorded", "claim.recorded", "pytest-console")]
+
+
+def test_evidence_unheld_endpoint_stays_null_not_guessed(conn):  # type: ignore[no-untyped-def]
+    k = _kawa(conn)
+    a = k.record_claim("claim grounded on something not held")
+    k.assert_link(a.event_id, "based_on", "sha256:" + "0" * 64)   # target not in the local log
+    conn.commit()
+    refresh_console_projections(conn)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT source_kind, target_kind FROM evidence_provenance")
+        assert cur.fetchall() == [("claim.recorded", None)]        # NULL = not held, never guessed
