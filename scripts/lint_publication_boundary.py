@@ -34,17 +34,33 @@ import subprocess
 import sys
 
 PRAGMA = "pub-lint:allow"
-BASELINE = os.path.join("registry", "publication-baseline.json")
+# POSIX-separated on purpose: this is compared against `git ls-files` /
+# `git rev-list --objects` output, which is always "/"-separated regardless of
+# platform. os.path.join would yield "\" on Windows and silently stop matching,
+# so the export gate would scan its own register of findings.
+BASELINE = "registry/publication-baseline.json"
 
 _DOC_V4 = re.compile(r"^(192\.0\.2|198\.51\.100|203\.0\.113)\.")
 _ALLOWED_V4 = re.compile(r"^(127\.|0\.0\.0\.0$|255\.255\.255\.255$)")
 _IPV4 = re.compile(r"\b((?:\d{1,3}\.){3}\d{1,3})\b")
 _IPV6_BAD = re.compile(r"\b(f[cd][0-9a-f]{2}:[0-9a-f:]{2,}|fe80:[0-9a-f:]{2,})", re.I)
-_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://(?:[^/\s\"'<>@]*@)?([^/\s\"'<>:]+)", re.I)
+# `?` and `#` terminate the host as surely as `/` does. Without them a URL with
+# no path swallowed its query into the host, so the reported match was the
+# meaningless `api.internal?query=x` instead of the coordinate `api.internal`.
+_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://(?:[^/\s\"'<>@]*@)?([^/\s\"'<>:?#]+)", re.I)
 _DSN_HOST = re.compile(r"\bhost=([^\s\"']+)")
-_DNS = re.compile(r"\b([a-z0-9][a-z0-9-]{1,62}(?:\.[a-z0-9][a-z0-9-]{0,62})+"
+# The FIRST label may be a single character, like every other label. Requiring
+# two exempted `a.corp.io` (pub-lint:allow) — a perfectly ordinary FQDN — and, because masking
+# rewrites a placeholder to one character, it exempted every coordinate whose
+# leading label was a template: `{host}.corp.io` became `x.corp.io` (pub-lint:allow) and scanned
+# clean (pub-lint:allow). Round 3 of the #207 review built that bypass; the sentinel was only
+# how it surfaced, so the length rule is what gets fixed, not the sentinel.
+_DNS = re.compile(r"\b([a-z0-9][a-z0-9-]{0,62}(?:\.[a-z0-9][a-z0-9-]{0,62})+"
                   r"\.(?:net|com|org|io|dev|app|ai|cloud|sh|jp))\b")
-_HOME = re.compile(r"(/home/[a-z0-9][a-z0-9_-]*|/Users/[A-Za-z0-9][A-Za-z0-9_-]*)")
+# /home/ is case-insensitive on the account segment for the same reason /Users/
+# already was: a Linux account may legitimately start with a capital, and the
+# lowercase-only class let `/home/Alice` through while `/Users/Alice` was caught.  (pub-lint:allow)
+_HOME = re.compile(r"(/home/[A-Za-z0-9][A-Za-z0-9_-]*|/Users/[A-Za-z0-9][A-Za-z0-9_-]*)")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 _ALLOWED_HOST_SUFFIXES = (
@@ -66,12 +82,57 @@ _SKIP_DIRS = (".git/",)
 _BINARY_HINT = b"\0"
 
 
-_PLACEHOLDER = re.compile(r"\{[^{}]*\}|\$\([^()]*\)|\$\{[^{}]*\}")
+# A placeholder is TEMPLATE SYNTAX, not "any pair of braces" (#201). The brace
+# form is anchored to what a template token can actually look like — a bare
+# identifier or dotted path — because the earlier `\{[^{}]*\}` also matched the
+# innermost objects of a JSON document. Under the fixpoint loop below those
+# collapse outward, so a one-line JSON file masked to a single `x` and the gate
+# reported it clean: measured 2026-08-18 on a real captured runtime response
+# carrying an operator home path and a `user@host` terminal title, 0 findings.
+# The hole was never JSON-specific — any brace-balanced structure on one line
+# (a Python/JS dict literal in a .py/.md) was erased the same way, which is why
+# the fix is to the RULE rather than a per-extension structural parse.
+#
+# Direction of safety: masking too LITTLE can only cost a false positive (a
+# reviewer triages it); masking too MUCH silently removes payload from a
+# fail-closed gate. When in doubt this rule does not mask.
+# EVERY form is anchored, not just the brace one. `\$\{[^{}]*\}` and
+# `\$\([^()]*\)` are the same greedy bug wearing different syntax: a shell
+# default-value expansion carries a literal payload, so `${DIR:-/home/alice}`  (pub-lint:allow)
+# masked the operator path away exactly like the JSON case, and
+# `$(curl http://10.x.x.x/token)` swallowed the address (pub-lint:allow). Found by adversarial
+# review of the first cut of this fix, which narrowed only the braces.
+#
+# What each form may contain is therefore bounded to what a SUBSTITUTION NAME
+# can be. A default value or a command argument is data and stays scannable.
+# A DOTTED brace token is indistinguishable from an FQDN — `{node.name}` and
+# `{vault.internal.net}` have identical structure (pub-lint:allow) — so allowing dots let a
+# brace-wrapped hostname mask itself away (round 2 finding). The brace form is
+# therefore ONE segment with no DOTS (hyphens are fine — see below).
+#
+# Nothing is lost by that: masking only matters when a placeholder is EMBEDDED
+# in a coordinate (`foo.{ENV}.corp.io`), and there the token is single-segment.  (pub-lint:allow)
+# An unmasked `{node.name}` raises no finding on its own because `_DNS` requires
+# a real TLD — `name` is not one. Refusing to mask is free here; masking is not.
+#
+# The `(?<!\$)` keeps each syntax owned by exactly one alternative, so a dotted
+# `${...}` cannot be half-consumed by the brace rule and laundered into `$x`.
+_PLACEHOLDER = re.compile(
+    # Hyphens are back: `{node-1}` is an ordinary template name, and a hostname
+    # needs a DOT to be one, so allowing `-` cannot wrap an FQDN. Leaving it out
+    # meant `{app-id}` survived unmasked into host position (round 4).
+    r"(?<!\$)\{[A-Za-z_][A-Za-z0-9_-]*\}"   # {host}, {node-1} — NOT {a.b.net}  (pub-lint:allow)
+    r"|\$\{[A-Za-z_][A-Za-z0-9_]*\}"    # ${VAR} — NOT ${VAR:-/home/alice}  (pub-lint:allow)
+    r"|\$\([A-Za-z_][A-Za-z0-9_ -]*\)"  # $(hostname -f) — NOT $(echo host.corp.io)  (pub-lint:allow)
+)
 
 
 def _mask_placeholders(line: str) -> str:
     """Review (b): placeholders are MASKED to 'x', never skipped wholesale —
-    `foo.{ENV}.corp.io` must still scan as masked and be caught. (pub-lint:allow)"""
+    `foo.{ENV}.corp.io` must still scan as masked and be caught. (pub-lint:allow)
+
+    The loop resolves NESTED substitution (`$(a $(b))`); the brace form cannot
+    nest, so it converges immediately."""
     prev = None
     while prev != line:
         prev, line = line, _PLACEHOLDER.sub("x", line)
@@ -79,6 +140,21 @@ def _mask_placeholders(line: str) -> str:
 
 
 def _host_allowed(host: str) -> bool:
+    # A BRACED host is reported, and that is a deliberate false positive.
+    #
+    # `https://{node.host}/api` (a URL template) and `https://{db.internal}/api`  (pub-lint:allow)
+    # (a wrapped internal hostname) are syntactically identical, so no rule can
+    # keep one and drop the other. Round 3 called the first a false positive and
+    # this function briefly skipped braced hosts; round 4 then showed what that
+    # bought — every non-public TLD (.internal, .local, .lan, .cluster) sailed
+    # through BOTH gates, because _DNS only knows ten public TLDs and _URL had
+    # just been told to look away. A silent leak is strictly worse than a finding
+    # a human clears with a pragma, so the template pays the tax.
+    #
+    # This is the same call already made for `{config.service.io}` (pub-lint:allow): a property
+    # path that ends in a real TLD stays a finding. Consistency matters here —
+    # the two cases are one question, and answering it differently in two places
+    # is how a boundary rots.
     if "(" in host:
         return True     # residual unbalanced call syntax (e.g. headers.get() — code,
                         # not a coordinate; balanced placeholders were masked already
@@ -135,8 +211,27 @@ def _tracked_files(root: str) -> list[str]:
     return [f for f in out.stdout.decode().split("\0") if f]
 
 
-def _key(f: dict) -> str:
+def finding_key(f: dict) -> str:
+    """Baseline identity of a finding. Deliberately path+rule+match and NOT
+    line number: a reviewed exception survives the file being reformatted, but
+    a DIFFERENT value at the same path is a new key and fails again (so a
+    fixture re-captured with a real operator path is caught, not laundered)."""
     return f"{f['path']}::{f['rule']}::{f['match']}"
+
+
+_key = finding_key   # back-compat alias for in-repo callers
+
+
+def load_baseline(root: str) -> set[str]:
+    """Reviewed, accepted findings for the tree at `root`.
+
+    Read from the tree being scanned rather than the caller's cwd, so the
+    EXPORT gate vouches for the baseline it actually publishes — an exception
+    can never be granted by a file that does not ship with the content."""
+    path = os.path.join(root, BASELINE)
+    if not os.path.exists(path):
+        return set()
+    return set(json.load(open(path)))
 
 
 def main() -> int:
@@ -160,15 +255,32 @@ def main() -> int:
         findings.extend(scan_text(raw.decode("utf-8", errors="replace"), rel))
 
     baseline_path = os.path.join(root, BASELINE)
-    known: set[str] = set()
-    if os.path.exists(baseline_path):
-        known = set(json.load(open(baseline_path)))
-    new = [f for f in findings if _key(f) not in known]
+    known = load_baseline(root)
+    new = [f for f in findings if finding_key(f) not in known]
 
     if args.update_baseline:
+        # This scan sees HEAD; the export gate sees EVERY blob in the published
+        # history. A finding fixed at HEAD therefore stays live for the export
+        # forever (history is immutable), so regenerating purely from HEAD would
+        # silently drop the entry that keeps the export buildable — and the
+        # breakage lands later, on whoever next tries to publish.
+        #
+        # This is append-only ON PURPOSE, and there is deliberately no --prune:
+        # any HEAD-based prune is in direct contradiction with a full-history
+        # gate (round 2 finding f-2 built the case — rename a file, prune, and
+        # the pre-rename blob fails the export forever). Dropping an entry is a
+        # hand edit to a small JSON file, which is reviewable as a diff. That is
+        # the right amount of friction for removing a publication exception.
         os.makedirs(os.path.dirname(baseline_path), exist_ok=True)
-        json.dump(sorted({_key(f) for f in findings}), open(baseline_path, "w"), indent=1)
-        print(f"[pub-lint] baseline rewritten: {len(findings)} finding(s) recorded")
+        fresh = {finding_key(f) for f in findings}
+        unseen = sorted(known - fresh)
+        keep = fresh | set(unseen)
+        json.dump(sorted(keep), open(baseline_path, "w"), indent=1)
+        print(f"[pub-lint] baseline rewritten: {len(findings)} finding(s) at HEAD, "
+              f"{len(keep)} entries recorded")
+        for k in unseen:
+            print(f"[pub-lint] retained (not at HEAD; may still be live in "
+                  f"published history — remove by hand if truly stale): {k}")
         return 0
 
     for f in new:

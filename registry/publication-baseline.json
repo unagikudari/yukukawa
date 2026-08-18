@@ -1,1 +1,8 @@
-[]
+[
+ "tests/fixtures/herdr/agent_start.json::home-path::/home/node",
+ "tests/fixtures/herdr/agent_wait.json::home-path::/home/node",
+ "tests/fixtures/herdr/err_agent_duplicate.json::home-path::/home/node",
+ "tests/fixtures/herdr/err_server_absent.json::home-path::/home/node",
+ "tests/fixtures/herdr/workspace_create.json::home-path::/home/node",
+ "tests/test_runtime_backend.py::home-path::/home/x"
+]

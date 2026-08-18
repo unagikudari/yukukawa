@@ -94,9 +94,19 @@ def rewrite_stream(stream: bytes, name: str, email: str) -> bytes:
 
 def lint_full_history(dest: str) -> list[str]:
     """Run the gate-1 scanner over EVERY blob in the export (identifier scan
-    of the whole publishable history, not just the final tree)."""
+    of the whole publishable history, not just the final tree).
+
+    Reviewed exceptions come from the export's OWN baseline (#201). Before
+    this, the export gate ignored the baseline the repo gate honours, so the
+    two halves of one mechanism disagreed about what had been reviewed: an
+    accepted finding could never ship, which pushes the next person to weaken
+    a RULE — permanently and for every file — instead of recording one
+    audited exception. Reading the baseline out of `dest` keeps it honest:
+    the exception must ship with the content it excuses."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-    from lint_publication_boundary import scan_text
+    from lint_publication_boundary import (scan_text, finding_key, load_baseline,
+                                           BASELINE, _SKIP_DIRS)
+    known = load_baseline(dest)
     objs = _run(["git", "-C", dest, "rev-list", "--objects", "--all"]).stdout
     findings: list[str] = []
     seen: set[str] = set()
@@ -105,6 +115,11 @@ def lint_full_history(dest: str) -> list[str]:
         if len(parts) != 2 or not parts[1]:
             continue
         oid, path = parts
+        if path == BASELINE or any(path.startswith(d) for d in _SKIP_DIRS):
+            continue        # the register of findings quotes them; scanning it is
+                            # self-referential. _SKIP_DIRS is shared with the repo
+                            # gate rather than restated, so the two halves cannot
+                            # drift apart when something is added to it later.
         if oid in seen:
             continue
         seen.add(oid)
@@ -115,6 +130,8 @@ def lint_full_history(dest: str) -> list[str]:
         if b"\0" in raw[:4096]:
             continue
         for f in scan_text(raw.decode("utf-8", errors="replace"), path):
+            if finding_key(f) in known:
+                continue
             findings.append(f"{f['rule']}: {path} ({oid[:10]}) {f['match']}")
     # identity sweep: no non-public email may survive anywhere in history
     log = _run(["git", "-C", dest, "log", "--all", "--format=%an <%ae>%n%cn <%ce>"]).stdout

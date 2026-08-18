@@ -90,7 +90,8 @@ def test_structured_refusal_never_forwards_backend_text(fake_herdr):  # type: ig
 
 
 def test_unparseable_output_is_classified_not_leaked(fake_herdr):  # type: ignore[no-untyped-def]
-    backend = fake_herdr({**_READY, "agent get": {"stdout": "boom: /home/x/herdr.sock\n"}})
+    backend = fake_herdr({**_READY,
+                          "agent get": {"stdout": "boom: /home/x/herdr.sock\n"}})  # pub-lint:allow synthetic
     with pytest.raises(RuntimeBackendError) as excinfo:
         backend.inspect(RuntimeHandle("herdr", "kawa-abc"))
     assert excinfo.value.error_class == "malformed_response"
