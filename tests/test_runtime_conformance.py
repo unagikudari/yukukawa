@@ -73,3 +73,39 @@ def test_live_runtime_round_trip():  # type: ignore[no-untyped-def]
     assert backend.inspect(handle).presence == "absent"       # cleanup verified
     with pytest.raises(RuntimeBackendError):
         HerdrBackend(session, binary="/nonexistent/herdr")._run("workspace", "list")
+
+
+@pytest.mark.skipif(os.environ.get("KAWA_HERDR_LIVE") != "1",
+                    reason="live conformance is opt-in: it starts a real agent")
+def test_live_wake_delivery_is_proven_by_the_runtimes_own_output(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
+    """The property fixtures cannot show: a real REPL accepts the cue while
+    still booting and silently drops it, so delivery is only real when the
+    runtime's own screen says so. This drives the launcher's wake path
+    against a live runtime — no database and no Work needed."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "scripts"))
+    import runtime_launch as rl
+
+    from kawa.runtime.wake import WAKE_CUE
+    session = os.environ.get("KAWA_HERDR_SESSION", "kawa-conformance")
+    binary = shutil.which("herdr")
+    if not binary:
+        pytest.skip("herdr binary absent")
+    backend = HerdrBackend(session, binary=binary)
+    if not backend.detect().available:
+        pytest.skip("herdr server absent")
+    # HOME is deliberately NOT redirected here: the runtime locates its own
+    # socket under the real home, so a sandboxed HOME would make a healthy
+    # server look absent. Only the launcher's own state file is redirected —
+    # and this path writes none of it.
+    monkeypatch.setenv("KAWA_RUNTIME_HANDLES", str(tmp_path / "handles.json"))
+
+    handle = backend.launch(LaunchSpec("w-live-wake", "codex", os.path.expanduser("~")))
+    try:
+        backend.await_settled(handle, timeout_s=90)
+        rl.deliver_wake(backend, handle)                     # raises if never echoed
+        screen = " ".join(backend.read_recent_output(handle).split())
+        assert " ".join(WAKE_CUE.split(";")[0].split()) in screen
+    finally:
+        backend.terminate(handle)
