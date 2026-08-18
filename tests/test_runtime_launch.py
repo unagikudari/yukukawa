@@ -40,7 +40,8 @@ class FakeBackend:
     name = "fake"
 
     def __init__(self, *, settle="quiescent", after_cue="quiescent",
-                 echo=True, present_after_launch=True):
+                 echo=True, present_after_launch=True,
+                 terminate_fails=False, inspect_fails=False):
         self.transmitted: list[str] = []
         self.launched: list[str] = []
         self.terminated: list[str] = []
@@ -48,6 +49,11 @@ class FakeBackend:
         self._settle, self._after_cue = settle, after_cue
         self._echo, self._present = echo, present_after_launch
         self._woken = False
+        # #210: the happy path was the only one the fake could express, so the
+        # forget-without-proof defect was untestable. A backend whose teardown
+        # or liveness answer fails is the ordinary case (an unreachable server),
+        # not an exotic one.
+        self._terminate_fails, self._inspect_fails = terminate_fails, inspect_fails
 
     def detect(self):
         return BackendStatus(True, "", "0.8.0")
@@ -76,12 +82,16 @@ class FakeBackend:
             self.screen += "\n> " + "\n  ".join(cue.split(" ", 4))
 
     def inspect(self, handle):
+        if self._inspect_fails:
+            raise RuntimeBackendError(self.name, "inspect_failed", "cannot answer")
         return self._obs(handle, self._after_cue if self._woken else self._settle)
 
     def read_recent_output(self, handle):
         return self.screen
 
     def terminate(self, handle):
+        if self._terminate_fails:
+            raise RuntimeBackendError(self.name, "terminate_failed", "server unreachable")
         self.terminated.append(handle.token)
 
 
@@ -339,3 +349,92 @@ def test_terminate_removes_the_entry(conn):  # type: ignore[no-untyped-def]
     assert rl.terminate(backend, "w-x") is True
     assert rl.terminate(backend, "w-x") is False    # idempotent
     assert backend.terminated == ["tok-w-x"]
+
+
+# --- #210: forgetting a runtime requires PROOF of absence ---------------------
+# The guard that keeps one Work from getting two live runtimes is the recorded
+# handle. Deleting it after a termination that never confirmed converts a
+# recoverable cleanup failure into an undetectable duplicate: the runtime is
+# still alive and nothing points at it any more.
+
+def test_failed_teardown_retains_the_handle_and_says_so(conn, capsys):  # type: ignore[no-untyped-def]
+    _work(conn)
+    backend = FakeBackend(settle="blocked", terminate_fails=True)
+    with pytest.raises(RuntimeBackendError) as excinfo:
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+
+    assert excinfo.value.error_class == "blocked_at_launch"      # original failure leads
+    assert "cleanup_incomplete" in capsys.readouterr().err       # and is not the only news
+
+    from kawa.runtime.handles import locked
+    with locked() as cache:
+        assert cache.get("w-x") is not None      # the only locator survives
+
+
+def test_a_retained_handle_still_refuses_the_next_launch(conn):  # type: ignore[no-untyped-def]
+    """The point of retaining it: the duplicate is still refused afterwards."""
+    _work(conn)
+    with pytest.raises(RuntimeBackendError):
+        rl.launch(FakeBackend(settle="blocked", terminate_fails=True),
+                  conn, "w-x", agent_kind="codex", cwd="/tmp")
+
+    fresh = FakeBackend()                        # the runtime is in fact still there
+    with pytest.raises(rl.Refused) as excinfo:
+        rl.launch(fresh, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    assert "already running" in str(excinfo.value)
+    assert fresh.launched == []                  # no second runtime
+
+
+def test_unanswerable_liveness_after_failed_teardown_also_retains(conn):  # type: ignore[no-untyped-def]
+    """An inspect that cannot answer is not absence either."""
+    _work(conn)
+    backend = FakeBackend(settle="blocked", terminate_fails=True, inspect_fails=True)
+    with pytest.raises(RuntimeBackendError):
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    from kawa.runtime.handles import locked
+    with locked() as cache:
+        assert cache.get("w-x") is not None
+
+
+def test_failed_teardown_confirmed_absent_does_drop(conn):  # type: ignore[no-untyped-def]
+    """Proof by inspect is proof: terminate raised, but the runtime is gone."""
+    _work(conn)
+    backend = FakeBackend(settle="blocked", terminate_fails=True,
+                          present_after_launch=False)
+    with pytest.raises(RuntimeBackendError):
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    from kawa.runtime.handles import locked
+    with locked() as cache:
+        assert cache.get("w-x") is None          # absence PROVEN, so forgetting is allowed
+
+
+def test_force_will_not_replace_an_unproven_runtime(conn, capsys):  # type: ignore[no-untyped-def]
+    """--force overrides the operator's uncertainty, not the need for proof."""
+    _work(conn)
+    rl.launch(FakeBackend(), conn, "w-x", agent_kind="codex", cwd="/tmp")
+
+    stubborn = FakeBackend(terminate_fails=True)
+    with pytest.raises(rl.Refused) as excinfo:
+        rl.launch(stubborn, conn, "w-x", agent_kind="codex", cwd="/tmp", force=True)
+
+    assert "cleanup_incomplete" in str(excinfo.value)
+    assert stubborn.launched == []                       # NO replacement runtime
+    assert "cleanup_incomplete" in capsys.readouterr().err
+    from kawa.runtime.handles import locked
+    with locked() as cache:
+        assert cache.get("w-x") is not None              # old handle still recorded
+
+
+def test_operator_terminate_keeps_the_entry_when_unproven(conn, capsys):  # type: ignore[no-untyped-def]
+    """The same rule on the operator path — an unreachable backend must not
+    silently lose the locator."""
+    _work(conn)
+    rl.launch(FakeBackend(), conn, "w-x", agent_kind="codex", cwd="/tmp")
+
+    assert rl.terminate(FakeBackend(terminate_fails=True), "w-x") is False
+    assert "cleanup_incomplete" in capsys.readouterr().err
+    from kawa.runtime.handles import locked
+    with locked() as cache:
+        assert cache.get("w-x") is not None
+
+    assert rl.terminate(FakeBackend(), "w-x") is True    # and it is still terminable

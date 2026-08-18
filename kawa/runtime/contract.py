@@ -127,9 +127,15 @@ class RuntimeBackend(Protocol):
         there" is `presence="absent"`; a backend that could not answer
         raises `inspect_failed`. Collapsing the two lets infrastructure
         failure be misread as an agent that finished.
-      * **Cleanup is idempotent.** `terminate` on an already-absent runtime
-        is success, and a partial teardown says so through `terminate_failed`
-        rather than reporting a clean exit it did not achieve.
+      * **Cleanup is idempotent, and a clean return MEANS absence.** `terminate`
+        on an already-absent runtime is success, and a partial teardown says so
+        through `terminate_failed` rather than reporting a clean exit it did not
+        achieve. This is load-bearing rather than decorative: the launcher drops
+        the recorded handle — the only thing standing between one Work and two
+        live runtimes — on a clean return. A backend whose teardown primitive
+        cannot confirm absence must therefore RAISE, so the caller falls through
+        to a confirming `inspect`, instead of returning and being believed
+        (#210).
 
     Nothing above names a mechanism: a tmux backend satisfies it with window
     names, a direct-process backend with pidfiles."""

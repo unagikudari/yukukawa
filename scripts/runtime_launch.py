@@ -14,8 +14,11 @@ occupancy leases exist). What it does, in order, is the whole point:
      refuses; only `--force` overrides, and it says what it overrode.
   3. **Launch, then gate** — the runtime exists before it is ready, so a
      wedge is addressable. A runtime still `blocked` after launch is
-     `blocked_at_launch`: it is TORN DOWN and deregistered before the error
-     is reported, or it would sit there absorbing the next attempt's cue.
+     `blocked_at_launch`: it is torn down before the error is reported, or it
+     would sit there absorbing the next attempt's cue. **Deregistration
+     requires PROOF of absence** — a termination that could not be confirmed
+     keeps the handle and says `cleanup_incomplete`, because forgetting a
+     runtime that is still alive is how one Work gets two of them (#210).
   4. **Wake with the constant, verify the echo** — the cue is
      `kawa.runtime.wake.WAKE_CUE` and nothing else can reach the PTY: this
      module never formats, appends to, or derives a prompt. A cue that never
@@ -103,10 +106,20 @@ def launch(backend, conn, work_ref: str, *, agent_kind: str, cwd: str,
                               "use --terminate first, or --force")
             cache.drop(work_ref)                    # stale entry, runtime is gone
         elif existing and force:
+            # --force overrides the operator's *uncertainty*, never the
+            # requirement for proof. If the previous runtime cannot be shown to
+            # be gone, starting a replacement is precisely the duplicate this
+            # guard exists to prevent — force must escalate, not manufacture
+            # a second runtime (#210).
             print(f"[launch] --force: replacing recorded runtime for {work_ref}",
                   file=sys.stderr)
-            _terminate_quietly(backend, RuntimeHandle(existing["backend"],
-                                                      existing["token"]))
+            if not _terminate_proven(backend, RuntimeHandle(existing["backend"],
+                                                            existing["token"])):
+                _report_cleanup_incomplete(work_ref)
+                raise Refused(
+                    f"--force could not prove the recorded runtime for {work_ref} "
+                    "is gone (cleanup_incomplete); refusing to start a second one. "
+                    "Terminate it yourself, then re-run.")
             cache.drop(work_ref)
 
         handle = backend.launch(LaunchSpec(work_ref, agent_kind, cwd))
@@ -120,7 +133,8 @@ def launch(backend, conn, work_ref: str, *, agent_kind: str, cwd: str,
                                       "runtime stopped for input before it was woken")
         deliver_wake(backend, handle)
     except RuntimeBackendError:
-        _cleanup(backend, handle, work_ref)         # never leave a wedge behind
+        if not _cleanup(backend, handle, work_ref):  # never leave a wedge behind —
+            _report_cleanup_incomplete(work_ref)     # and never forget one either
         raise
     write_status(work_ref, backend.inspect(handle))
     return handle
@@ -189,26 +203,66 @@ def deliver_wake(backend, handle: RuntimeHandle) -> None:
 
 
 def terminate(backend, work_ref: str) -> bool:
+    """Operator teardown. Same rule as every other exit: the entry goes only
+    when the runtime is proven gone, so an unreachable backend leaves the
+    locator in place instead of quietly losing it (#210)."""
     with locked() as cache:
         entry = cache.get(work_ref)
         if not entry:
             return False
-        backend.terminate(RuntimeHandle(entry["backend"], entry["token"]))
+        if not _terminate_proven(backend,
+                                 RuntimeHandle(entry["backend"], entry["token"])):
+            _report_cleanup_incomplete(work_ref)
+            return False
         cache.drop(work_ref)
     return True
 
 
-def _cleanup(backend, handle: RuntimeHandle, work_ref: str) -> None:
-    _terminate_quietly(backend, handle)
+def _cleanup(backend, handle: RuntimeHandle, work_ref: str) -> bool:
+    """Tear down after a failed launch. True when the runtime was PROVEN absent
+    and the handle was dropped; False when the handle was RETAINED because
+    absence could not be proven (#210).
+
+    The old shape swallowed a failed `terminate` and dropped the entry anyway,
+    which is how a recoverable cleanup failure became an undetectable duplicate:
+    the runtime survived, kawa deleted the only thing pointing at it, and the
+    next launch — seeing nothing recorded — started a second one on the same
+    Work. The handle is non-authoritative telemetry, but it is the ONLY H1
+    mechanism standing between one Work and two live runtimes."""
+    if not _terminate_proven(backend, handle):
+        return False
     with locked() as cache:
         cache.drop(work_ref)
+    return True
 
 
-def _terminate_quietly(backend, handle: RuntimeHandle) -> None:
+def _terminate_proven(backend, handle: RuntimeHandle) -> bool:
+    """True only when the runtime is proven GONE.
+
+    Termination attempted is not runtime absent. A clean return from
+    `terminate` is proof, because the contract requires cleanup to be
+    idempotent and to report a partial teardown as `terminate_failed` rather
+    than a clean exit it did not achieve — so a backend whose primitive is not
+    conclusive must raise, which routes it here into the confirming inspect.
+    An inspect that cannot answer is not absence either."""
     try:
         backend.terminate(handle)
+        return True
     except RuntimeBackendError:
-        pass                                        # the original failure leads
+        pass
+    try:
+        return backend.inspect(handle).presence == "absent"
+    except RuntimeBackendError:
+        return False
+
+
+def _report_cleanup_incomplete(work_ref: str) -> None:
+    """Surface it. The original launch failure still leads, but a retained
+    handle whose runtime may be alive is a condition an operator has to see —
+    swallowing it is what made this defect invisible for as long as it was."""
+    print(f"[launch] cleanup_incomplete: could not prove the runtime for "
+          f"{work_ref} is gone; its handle is RETAINED. Run --terminate, or "
+          f"check it before using --force.", file=sys.stderr)
 
 
 def write_status(work_ref: str, observation) -> None:
