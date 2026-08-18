@@ -1,0 +1,15 @@
+user@node:~/workdir$ codex
+╭───────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.147.0)                │
+│                                           │
+│ model:     gpt-5.6-sol   /model to change │
+│ directory: ~/workdir             │
+╰───────────────────────────────────────────╯
+
+  Tip: Use /init to create an AGENTS.md with project-
+  specific guidance.
+
+
+› Implement {feature}
+
+  gpt-5.6-sol default · ~/workdir

@@ -1,0 +1,1 @@
+{"error":{"code":"agent_name_taken","message":"agent name kawa-cap-agent is already used; candidates: terminal_id=term_659517341c2732 pane_id=w2:p1 workspace_id=w2 tab_id=w2:t1 cwd=/home/node/workdir status=Idle"},"id":"cli:agent:start"}

@@ -1,0 +1,10 @@
+{
+  "runtime": "herdr",
+  "version": "0.8.0",
+  "protocol": 19,
+  "schema_version": 1,
+  "schema_sha256": "sha256:88ff414aa996e390c2db05a37b95d28dbe4e81b98329f6ed7f7a2cc5c6ebf51a",
+  "request_methods": 90,
+  "captured_on": "2026-08-18",
+  "captured_node": "kawa dogfood node"
+}
