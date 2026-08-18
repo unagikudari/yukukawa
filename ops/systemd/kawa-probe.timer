@@ -1,0 +1,10 @@
+[Unit]
+Description=kawa reachability probes every 10 minutes
+
+[Timer]
+OnBootSec=3m
+OnUnitActiveSec=10m
+RandomizedDelaySec=1m
+
+[Install]
+WantedBy=timers.target

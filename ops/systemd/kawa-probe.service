@@ -1,0 +1,15 @@
+# Reachability probe collector (#189 rev 3 step 3): node_reachable
+# Observations from the operator's git-ignored allowlist
+# (~/.kawa/probe_targets.conf). §D security boundary: labels only in the
+# projection/UI; URLs stay in the log's source_ref. No config = absence
+# (clean exit, nothing emitted).
+[Unit]
+Description=kawa reachability probe collector — node_reachable Observations
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/kawa
+Environment=KAWA_DSN=dbname=kawa
+Environment=KAWA_NODE=panoplia
+TimeoutStartSec=2m
+ExecStart=%h/kawa/.venv/bin/python scripts/collect_node_probe.py

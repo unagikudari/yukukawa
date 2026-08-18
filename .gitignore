@@ -72,3 +72,4 @@ htmlcov/
 *node-identity*.json
 *node-keys*.json
 .kawa/
+probe_targets*.conf

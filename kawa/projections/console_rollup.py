@@ -36,16 +36,41 @@ def _residue(refs: list[str], limit: int = 10) -> str | None:
 
 
 def refresh_fleet_node(cur: psycopg.Cursor) -> None:
-    """One row per origin node seen in the log. Every health cell is UNKNOWN
-    until a real, named source exists (measured 2026-08-17: none does)."""
+    """One row per origin node seen in the log. Health cells stay UNKNOWN
+    unless a real, named source exists. Since #189 step 3 reachability HAS
+    one: the latest `node_reachable` probe facet whose operator label names
+    this node — requires refresh_fleet_node_facet to have run FIRST (latest-
+    wins per §C is applied there, exactly once)."""
     cur.execute("DELETE FROM fleet_node")
     cur.execute(
         "INSERT INTO fleet_node (node_ref, last_origin_seq, last_event_at) "
         "SELECT origin_node, max(origin_seq), max(recorded_at) "
         "FROM events GROUP BY origin_node")
-    # reachability / workload / replication stay at their UNKNOWN defaults —
-    # deliberately no UPDATE here; writing a measured state requires a named
-    # source (schema CHECK) and no admissible source exists yet.
+    # RCH consumption (#189 step 3): a probe binds to a node ONLY when its
+    # operator-assigned label equals the node_ref — labels are an operator
+    # statement, not a discovery mechanism, so a label matching no known node
+    # updates nothing here (it stays visible as a facet). True=OK, False=CRIT
+    # (a measured refusal); as_of is the probe completion time, and age never
+    # repaints the state (§B: staleness renders as AGE, never as health).
+    # The facet PK includes the PROBING node (several nodes may probe one
+    # label), so latest-wins must be re-applied ACROSS probers here — a bare
+    # 1:N UPDATE..FROM would pick a scan-order-dependent row (step-3 review
+    # C-1). Ordering is the §C chain; node_ref/source_event_id complete it to
+    # a total order (deterministic even on exact timestamp ties).
+    cur.execute(
+        "UPDATE fleet_node fn SET "
+        "reachability = CASE WHEN f.value_bool THEN 'OK' ELSE 'CRIT' END, "
+        "reachability_source = 'observation:node_reachable label=' || f.qualifier, "
+        "reachability_as_of = f.occurred_at::timestamptz "
+        "FROM (SELECT DISTINCT ON (qualifier) qualifier, value_bool, occurred_at "
+        "      FROM fleet_node_facet WHERE predicate = 'node_reachable' "
+        "      ORDER BY qualifier, occurred_at::timestamptz DESC, "
+        "               fetched_at::timestamptz DESC, node_ref DESC, "
+        "               source_event_id DESC) f "
+        "WHERE f.qualifier = fn.node_ref")
+    # workload / replication stay at their UNKNOWN defaults — writing a
+    # measured state requires a named source (schema CHECK) and no admissible
+    # source exists for them yet.
 
 
 def refresh_situation_rollup(cur: psycopg.Cursor) -> None:
@@ -188,8 +213,8 @@ def refresh_console_projections(conn: psycopg.Connection) -> None:
         raise ValueError("refresh_console_projections requires a transaction-owning "
                          "connection (autocommit=False)")
     with conn.cursor() as cur:
-        refresh_fleet_node(cur)
-        refresh_fleet_node_facet(cur)
+        refresh_fleet_node_facet(cur)   # first: fleet_node consumes its
+        refresh_fleet_node(cur)         # node_reachable rows (#189 step 3)
         refresh_evidence_provenance(cur)
         _register_projection_state(cur)     # before the rollup, so the
         refresh_situation_rollup(cur)       # FRESHNESS card counts this refresh
