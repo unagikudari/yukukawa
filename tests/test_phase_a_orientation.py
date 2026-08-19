@@ -173,22 +173,36 @@ def test_precedent_from_internal_event_log_only(conn, k) -> None:  # type: ignor
 
 # ---- budget regression + limit algebra (sketch 6 / r3-F4) ----
 
-def test_structural_budgets_unchanged_and_sideband_additive(conn, k) -> None:  # type: ignore[no-untyped-def]
+def test_the_sideband_lives_inside_the_ceiling(conn, k) -> None:  # type: ignore[no-untyped-def]
+    """RE-BASELINED, deliberately (#214 step 2).
+
+    This test used to assert that the Phase-A sideband was ADDITIVE — structural
+    budgets byte-identical to pre-Phase-A, and `total <= limit + 9 + n`. That
+    algebra is the defect: it is how `Intent(limit=0)` authorised fourteen records,
+    and no caller-visible number described the total.
+
+    The sideband is now an ordinary member of the tiers, inside the ceiling. It
+    keeps its full 6+3 whenever the ceiling can afford them — a caller who sets a
+    small limit loses REACH, not GROUNDING — and the default rose to 59 so callers
+    who set nothing keep the budget they had.
+    """
     c = k.record_claim("x")
-    plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10), FLEET))
-    structural = [q for q in plan.query_classes
-                  if q.purpose not in ("repository_normative", "precedent")]
-    sideband = [q for q in plan.query_classes
+
+    # affordable: the sideband still gets exactly what the profile asks for
+    plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=59), FLEET))
+    sideband = [(q.purpose, q.budget) for q in plan.query_classes
                 if q.purpose in ("repository_normative", "precedent")]
-    # pre-Phase-A algebra over structural classes only: floor split + remainder
-    n = len(structural)
-    base, rem = divmod(max(10, n), n)
-    assert [q.budget for q in structural] == [base + (1 if i < rem else 0) for i in range(n)]
-    # claim anchor -> adversarial_review profile: 6+3 sideband rows, stated in the plan
-    assert [(q.purpose, q.budget) for q in sideband] == [
-        ("repository_normative", 6), ("precedent", 3)]
-    # limit algebra: total rows <= limit + sideband, never limit alone
-    assert sum(q.budget for q in plan.query_classes) <= 10 + 9 + n  # base may exceed limit by split floor
+    assert sideband == [("repository_normative", 6), ("precedent", 3)]
+    assert plan.total_budget <= 59
+
+    # tight: grounding survives, reach does not
+    tight = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=3), FLEET))
+    assert [q.purpose for q in tight.query_classes] == [
+        "anchor_lookup", "standing", "repository_normative"]
+    assert tight.total_budget <= 3
+    assert {s.purpose for s in tight.skipped_at_compile} == {
+        "evidence", "neighborhood", "precedent", "vector"}
+    assert all(s.reason == "tier_budget_exhausted" for s in tight.skipped_at_compile)
 
 
 def test_unanchored_textual_intent_plans_no_sideband(conn, k) -> None:  # type: ignore[no-untyped-def]

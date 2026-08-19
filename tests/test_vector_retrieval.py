@@ -153,7 +153,7 @@ def test_empty_index_is_stated_never_silent(conn, k):  # type: ignore[no-untyped
     c = k.record_claim("lonely claim")
     conn.commit()
     bundle = retrieve(conn, Intent(about=c.event_id), viewer_scopes=FLEET)
-    assert any("vector index empty" in s for s in bundle.skipped_classes)
+    assert any("vector index empty" in s.detail for s in bundle.skipped_classes)
     assert not _vector_records(bundle)
 
 
@@ -226,12 +226,12 @@ def test_textual_vector_stated_without_embedder_fires_with_one(conn, k):  # type
     })
     _index(conn, emb)
     without = retrieve(conn, Intent(text_terms="replication lag?"), viewer_scopes=FLEET)
-    assert any("needs a live embedder" in s for s in without.skipped_classes)
+    assert any("needs a live embedder" in s.detail for s in without.skipped_classes)
     with_model = retrieve(conn, Intent(text_terms="replication lag?"), embedder=emb, viewer_scopes=FLEET)
     assert _vector_records(with_model), "textual vector should fire with a live embedder"
     mismatched = FakeEmbedder(name="other-model")
     stated = retrieve(conn, Intent(text_terms="replication lag?"), embedder=mismatched, viewer_scopes=FLEET)
-    assert any("!= indexed model" in s for s in stated.skipped_classes)
+    assert any("!= indexed model" in s.detail for s in stated.skipped_classes)
 
 
 def test_plan_revisions_dedup_to_one_domain_ref(conn, k):  # type: ignore[no-untyped-def]

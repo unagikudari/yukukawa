@@ -81,7 +81,16 @@ class Intent:
     about: str | None = None               # ref: event_id / plan_ref / work_ref
     text_terms: str | None = None          # free text; lexical only if it stays unbound
     relation_depth: int = 2
-    limit: int = 50
+    # A HARD ceiling on the Bundle: sum(class budgets) <= limit, for every shape and
+    # every value including 0 (#214 step 2). It used to be a floor the planner could
+    # enlarge -- `limit=0` authorised fourteen records -- so a caller could not bound
+    # its own context deterministically.
+    #
+    # The default is 59 because that is the largest total any shape produced under the
+    # old arithmetic (claim_event at the previous default of 50, measured). Raising it
+    # is what keeps callers who never set a limit from silently losing budget the day
+    # the number started meaning something.
+    limit: int = 59
     fallback_policy: int | None = None     # structured_underflow threshold; None = no fallback
 
 
@@ -106,6 +115,14 @@ class QueryClass:
 class RetrievalPlan:
     bound: BoundIntent
     query_classes: tuple[QueryClass, ...]
+    # every ceiling actually enforced, stated before execution rather than inferred
+    # from the result. `result_limit` is the hard one: sum(class budgets) <= it.
+    result_limit: int = 0
+    skipped_at_compile: tuple[SkippedClass, ...] = ()
+
+    @property
+    def total_budget(self) -> int:
+        return sum(q.budget for q in self.query_classes)
 
 
 @dataclass(frozen=True)
@@ -143,6 +160,29 @@ class DocSectionRecord:
     basis: str = "domain"                  # domain | lexical (derived-facet basis rule)
 
 
+# Why a class produced nothing. A closed vocabulary rather than free text: a reader
+# that must parse prose to learn whether something was unaffordable or genuinely
+# absent will guess, and "no normative material exists" is a very different claim
+# from "no normative material was affordable" (#214 step 2).
+SKIP_REASONS = (
+    "tier_budget_exhausted",   # the ceiling ran out before this tier was reached
+    "budget_exhausted",        # planned, but apportionment left it zero rows
+    "structured_underflow_met",  # deferred lexical: structure answered, so it never fired
+    "no_model",                # vector: no embedder available
+)
+
+
+@dataclass(frozen=True)
+class SkippedClass:
+    class_id: str
+    purpose: str
+    reason: str                            # one of SKIP_REASONS
+    detail: str = ""                       # human context; never the machine-readable part
+
+    def __post_init__(self) -> None:
+        assert self.reason in SKIP_REASONS, self.reason
+
+
 @dataclass(frozen=True)
 class FrontierEntry:
     source_node: str
@@ -158,7 +198,7 @@ class Bundle:
     traversal_frontier: list[FrontierEntry] = field(default_factory=list)
     unresolved_frontier: list[FrontierEntry] = field(default_factory=list)
     empty_classes: list[str] = field(default_factory=list)
-    skipped_classes: list[str] = field(default_factory=list)            # deferred lexical, not fired
+    skipped_classes: list[SkippedClass] = field(default_factory=list)   # planned-but-unrun, typed
     fts_queries: list[str] = field(default_factory=list)                # generated tsquery strings
     vector_frontier: list[str] = field(default_factory=list)            # index lag / model, stated (§10.3)
     viewer_scopes: tuple[str, ...] = ()                                 # #146: the scope answered under
@@ -225,6 +265,16 @@ _BACKEND = {"anchor_lookup": "typed_sql", "standing": "typed_sql", "evidence": "
 # the anchor's kind (internal RetrievalPlan behavior, not public surface). The
 # sideband is ADDITIVE: Intent.limit bounds the base structural pool exactly as
 # before; these rows ride on top (total <= limit + sideband; #156 sketch 6).
+# Tiers (#214 step 2). A small ceiling must cost REACH, not GROUNDING: the caller who
+# sets a limit to be careful is exactly the one who should not lose the normative
+# material. Within tier 1 the waterfall decides, so `limit=1` still answers with the
+# anchor rather than with a fragment of everything.
+_TIER = {"anchor_lookup": 1, "standing": 1, "repository_normative": 1,
+         "evidence": 2,
+         "neighborhood": 3, "precedent": 3, "vector": 3, "lexical": 3}
+_WITHIN_TIER = ("anchor_lookup", "standing", "repository_normative", "evidence",
+                "neighborhood", "precedent", "lexical", "vector")
+
 _PROFILE_OF = {"work": "design_change", "plan": "design_change",
                "event": "design_change", "claim_event": "adversarial_review"}
 _SIDEBAND = {"design_change": (4, 2), "adversarial_review": (6, 3)}   # (normative, precedent) rows
@@ -244,35 +294,89 @@ def compile_plan(bound: BoundIntent) -> RetrievalPlan:
     if purposes:
         # step 11B (#122, measured GO on evidence+neighborhood): every plannable
         # intent also gets a vector class — LAST, so the structural and lexical
-        # classes keep their pre-11B budget precedence (Lock 3 remainder order):
-        # vector adds reach, it never outranks structure. Anchored intents need
-        # NO live model (the query vector is the anchor's STORED embedding);
-        # textual intents embed live and are stated as skipped without a model.
+        # classes keep their pre-11B budget precedence: vector adds reach, it never
+        # outranks structure. Anchored intents need NO live model (the query vector is
+        # the anchor's STORED embedding); textual intents embed live and are stated as
+        # skipped without a model.
         purposes.append(("vector", None))
-    if not purposes:
-        return RetrievalPlan(bound=bound, query_classes=())
-
-    # Lock 3: deterministic budget apportionment — floor split, remainder to earlier
-    # classes in dispatch order (anchor first). Global cap == sum of class budgets.
-    n = len(purposes)
-    base, rem = divmod(max(bound.intent.limit, n), n)
-    classes = [
-        QueryClass(class_id=f"q{i}-{purpose}", purpose=purpose, backend=_BACKEND[purpose],
-                   budget=base + (1 if i < rem else 0), fts_reason=reason)
-        for i, (purpose, reason) in enumerate(purposes)
-    ]
-    # #156 Phase A sideband — appended AFTER the base split so structural budgets are
-    # byte-identical to pre-Phase-A (regression-tested). Anchored intents only.
+    # #156 Phase A: the orientation sideband. It used to be appended AFTER the split,
+    # OUTSIDE Intent.limit — which is how `limit=0` authorised fourteen records. It is
+    # now an ordinary member of the tiers below, inside the ceiling (#214 step 2).
     if bound.anchor_kind:
-        profile = _PROFILE_OF[bound.anchor_kind]
-        norm_rows, prec_rows = _SIDEBAND[profile]
-        i = len(classes)
-        classes.append(QueryClass(class_id=f"q{i}-repository_normative",
-                                  purpose="repository_normative", backend="repository",
-                                  budget=norm_rows))
-        classes.append(QueryClass(class_id=f"q{i + 1}-precedent", purpose="precedent",
-                                  backend="typed_sql", budget=prec_rows))
-    return RetrievalPlan(bound=bound, query_classes=tuple(classes))
+        norm_rows, prec_rows = _SIDEBAND[_PROFILE_OF[bound.anchor_kind]]
+        purposes += [("repository_normative", None), ("precedent", None)]
+    else:
+        norm_rows = prec_rows = 0
+    if not purposes:
+        return RetrievalPlan(bound=bound, query_classes=(), result_limit=bound.intent.limit)
+
+    limit = max(0, bound.intent.limit)
+    wants = {"repository_normative": norm_rows, "precedent": prec_rows}
+
+    # Tier order IS execution order, and the ceiling is absolute. Reserving floors at
+    # COMPILE time rather than short-circuiting at run time is what makes both true at
+    # once: a runtime check either truncates tier 1 at the end (so exempting it bought
+    # nothing) or returns past the limit (so the limit is not one). Reserved first,
+    # nothing runs that cannot be admitted.
+    ordered = sorted(purposes, key=lambda pr: (_TIER[pr[0]], _WITHIN_TIER.index(pr[0])))
+
+    budgets: dict[str, int] = {}
+    skipped: list[SkippedClass] = []
+    remaining = limit
+
+    # 1. one row each, in tier order, for as far as the ceiling reaches. This is where
+    #    tiering earns its keep: at limit=1 the answer is the anchor, not a fragment of
+    #    everything, and the classes that fall off the end are the expansive ones.
+    for purpose, _reason in ordered:
+        if remaining <= 0:
+            break
+        budgets[purpose] = 1
+        remaining -= 1
+
+    planned = [pr for pr in ordered if pr[0] in budgets]
+    unplanned = [pr for pr in ordered if pr[0] not in budgets]
+
+    # 2. the remainder, in tier order. Sideband classes are CAPPED at what they want;
+    #    everything else splits what is left evenly, earlier tiers first.
+    for purpose in list(budgets):
+        if purpose in wants and remaining > 0:
+            top_up = min(wants[purpose] - budgets[purpose], remaining)
+            if top_up > 0:
+                budgets[purpose] += top_up
+                remaining -= top_up
+    shares = [pr for pr in planned if pr[0] not in wants]
+    if shares and remaining > 0:
+        base, rem = divmod(remaining, len(shares))
+        for i, (purpose, _reason) in enumerate(shares):
+            budgets[purpose] += base + (1 if i < rem else 0)
+        remaining = 0
+
+    # 3. what the ceiling never reached is stated, not silently absent
+    for purpose, _reason in unplanned:
+        skipped.append(SkippedClass(
+            _class_id(ordered, purpose), purpose, "tier_budget_exhausted",
+            f"limit {limit} was exhausted before tier {_TIER[purpose]}"))
+
+    classes = tuple(
+        QueryClass(class_id=_class_id(ordered, purpose), purpose=purpose,
+                   backend=_BACKEND[purpose], budget=budgets[purpose], fts_reason=reason)
+        for purpose, reason in ordered if purpose in budgets
+    )
+    total = sum(q.budget for q in classes)
+    if total > limit:
+        # Not an assert: `python -O` strips those, and a guarantee that evaporates
+        # under an optimisation flag is not one. This is the property the whole step
+        # exists to establish, so it is checked where it cannot be turned off.
+        raise RuntimeError(
+            f"apportionment exceeded the ceiling ({total} > {limit}) — refusing to "
+            "return a plan that cannot honour Intent.limit")
+    return RetrievalPlan(bound=bound, query_classes=classes, result_limit=limit,
+                         skipped_at_compile=tuple(skipped))
+
+
+def _class_id(ordered: list[tuple[str, str | None]], purpose: str) -> str:
+    """Stable per-plan identifier: position in the tier-ordered dispatch."""
+    return f"q{[p for p, _ in ordered].index(purpose)}-{purpose}"
 
 
 # ---- phase 3: execute ----
@@ -282,13 +386,15 @@ def retrieve(conn: psycopg.Connection, intent: Intent,
              viewer_scopes: frozenset[str]) -> Bundle:
     plan = compile_plan(resolve_bindings(conn, intent, viewer_scopes))
     bundle = Bundle(plan=plan, viewer_scopes=tuple(sorted(viewer_scopes)))
+    bundle.skipped_classes.extend(plan.skipped_at_compile)   # never planned, and says so
     structural_total = 0
     for qc in plan.query_classes:
         if qc.fts_reason == "structured_underflow":
             # execute-time fallback decision: fire only if structure came up short
             if structural_total >= (plan.bound.intent.fallback_policy or 0):
-                bundle.skipped_classes.append(
-                    f"{qc.class_id} (threshold met: {structural_total} structural records)")
+                bundle.skipped_classes.append(SkippedClass(
+                    qc.class_id, qc.purpose, "structured_underflow_met",
+                    f"{structural_total} structural records met the threshold"))
                 continue
         if qc.purpose == "vector":
             records = _exec_vector(conn, plan, qc, bundle, embedder, viewer_scopes)
@@ -671,7 +777,8 @@ def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
     with conn.cursor() as cur:
         indexed = _indexed_model(cur)
         if indexed is None:
-            bundle.skipped_classes.append(f"{qc.class_id} (vector index empty)")
+            bundle.skipped_classes.append(SkippedClass(
+                qc.class_id, qc.purpose, "no_model", "vector index empty"))
             return []
         model, _n = indexed
         # coverage stated over the VIEWER's scope — an aggregate over restricted scopes
@@ -703,18 +810,20 @@ def _exec_vector(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
                 row = cur.fetchone()
                 qvec = row[0] if row else None
             if qvec is None:
-                bundle.skipped_classes.append(
-                    f"{qc.class_id} (anchor has no embedding under {model})")
+                bundle.skipped_classes.append(SkippedClass(
+                    qc.class_id, qc.purpose, "no_model",
+                    f"anchor has no embedding under {model}"))
                 return []
         elif b.unbound_text:
             if embedder is None:
-                bundle.skipped_classes.append(
-                    f"{qc.class_id} (textual vector needs a live embedder)")
+                bundle.skipped_classes.append(SkippedClass(
+                    qc.class_id, qc.purpose, "no_model",
+                    "textual vector needs a live embedder"))
                 return []
             if embedder.model_identity != model:
-                bundle.skipped_classes.append(
-                    f"{qc.class_id} (live embedder {embedder.model_identity} "
-                    f"!= indexed model {model})")
+                bundle.skipped_classes.append(SkippedClass(
+                    qc.class_id, qc.purpose, "no_model",
+                    f"live embedder {embedder.model_identity} != indexed model {model}"))
                 return []
             qvec = "[" + ",".join(f"{v:.8f}" for v in embedder.embed([b.unbound_text])[0]) + "]"
         else:
@@ -865,7 +974,8 @@ def _exec_repository_normative(conn: psycopg.Connection, plan: RetrievalPlan, qc
     scopes = list(viewer_scopes)
     idx = _section_index()
     if idx is None:
-        bundle.skipped_classes.append(f"{qc.class_id} (repository index unavailable)")
+        bundle.skipped_classes.append(SkippedClass(
+            qc.class_id, qc.purpose, "no_model", "repository index unavailable"))
         return []
     bundle.orientation.append(f"index source: {idx.source} @ {idx.commit[:12]}")
     for doc in idx.dirty_docs:

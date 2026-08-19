@@ -139,7 +139,8 @@ def test_fallback_policy_skips_lexical_when_structure_suffices(conn, k) -> None:
     bundle = retrieve(conn, Intent(about=claim.event_id, text_terms="healthy",
                                    fallback_policy=1), viewer_scopes=FLEET)              # structure will exceed 1
     assert bundle.fts_queries == []                                 # lexical did NOT fire
-    assert bundle.skipped_classes and "threshold met" in bundle.skipped_classes[0]
+    skipped = [s for s in bundle.skipped_classes if s.reason == "structured_underflow_met"]
+    assert skipped and skipped[0].purpose == "lexical"       # typed, not prose (#214 step 2)
 
 
 def test_fallback_policy_fires_lexical_on_underflow(conn, k) -> None:  # type: ignore[no-untyped-def]
@@ -212,18 +213,18 @@ def test_console_search_screen_renders_bundle(conn, k) -> None:  # type: ignore[
     assert page is not None and "Retrieval plan" in page and "q0-anchor_lookup" in page
 
 
-# ---- Lock 3: budget apportionment is deterministic and sums to >= limit split ----
+# ---- Lock 3: apportionment is deterministic, and `limit` is a CEILING (#214 step 2) ----
 
 def test_budget_apportionment_deterministic(conn, k) -> None:  # type: ignore[no-untyped-def]
+    """This assertion used to read `sum(budgets) >= 10`, which encoded `limit` as a
+    minimum the planner could enlarge — the defect #211 reported. It is now `<=`,
+    over EVERY class including the sideband, because the whole point is that no
+    class lives outside the number the caller gave."""
     c = k.record_claim("x")
     plan = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10), viewer_scopes=FLEET))
-    # Lock 3 governs the STRUCTURAL pool; the #156 sideband is additive on top and
-    # deliberately outside this invariant (its algebra is tested in test_phase_a_orientation).
-    budgets = [q.budget for q in plan.query_classes
-               if q.purpose not in ("repository_normative", "precedent")]
-    assert sum(budgets) >= 10 and max(budgets) - min(budgets) <= 1   # floor split + remainder
+    assert sum(q.budget for q in plan.query_classes) <= 10
     plan2 = compile_plan(resolve_bindings(conn, Intent(about=c.event_id, limit=10), viewer_scopes=FLEET))
-    assert plan == plan2
+    assert plan == plan2                                            # still deterministic
 
 
 # ---- #146 (ADV-02): scope boundaries enforced across all retrieval backends ----

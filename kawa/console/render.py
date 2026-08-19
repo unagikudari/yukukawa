@@ -346,7 +346,9 @@ def _screen_search(conn: psycopg.Connection, query: dict | None = None) -> str:
     if bundle.empty_classes:
         notes.append("ran empty: " + ", ".join(bundle.empty_classes))
     if bundle.skipped_classes:
-        notes.append("deferred, not fired: " + ", ".join(bundle.skipped_classes))
+        notes.append("deferred, not fired: " + ", ".join(
+            f"{s.class_id} ({s.reason}{': ' + s.detail if s.detail else ''})"
+            for s in bundle.skipped_classes))
     if bundle.traversal_frontier:
         reasons = Counter(f.reason for f in bundle.traversal_frontier)
         notes.append("not expanded: " + ", ".join(f"{k}×{v}" for k, v in sorted(reasons.items())))

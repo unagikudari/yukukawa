@@ -51,7 +51,8 @@ def main() -> int:
     if bundle.empty_classes:
         print(f"\nempty classes (ran, found nothing): {', '.join(bundle.empty_classes)}")
     if bundle.skipped_classes:
-        print(f"skipped classes (deferred, did not fire): {', '.join(bundle.skipped_classes)}")
+        print("skipped classes (planned but not run): " + ", ".join(
+            f"{s.class_id} [{s.reason}]" for s in bundle.skipped_classes))
     if bundle.traversal_frontier:
         reasons = {}
         for f in bundle.traversal_frontier:
