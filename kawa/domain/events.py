@@ -311,7 +311,9 @@ class Event(BaseModel):
         if self.envelope_version == 1 and (self.scope_ref is not None or self.scope_digest is not None):
             return False                     # structural: a v1 envelope never carries a scope
         if self.scope_ref is not None:
-            from kawa.domain.ids import scope_digest_of
+            from kawa.domain.ids import RESERVED_SCOPE_PREFIX, scope_digest_of
+            if self.scope_ref.startswith(RESERVED_SCOPE_PREFIX):
+                return False                 # reserved namespace — see below
             if self.scope_digest != scope_digest_of(self.scope_ref):
                 return False                 # cleartext must match the hashed commitment
         pd = digest(self.payload.model_dump(mode="json")) if self.payload is not None else self.payload_digest

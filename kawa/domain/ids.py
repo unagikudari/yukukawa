@@ -93,6 +93,24 @@ def event_hash(
     raise ValueError(f"unknown envelope_version {envelope_version!r} — refuse, never guess")
 
 
+# Scope names beginning with this are RESERVED and structurally unrepresentable as a
+# user scope (#214 step 4, review round 1).
+#
+# The link projection stores `$public` where an event carries no scope, because a
+# stored NOT NULL sentinel keeps the authorization predicate plain equality and
+# therefore indexable — `IS NULL OR = ANY(...)` forces a BitmapOr and a Sort, and
+# `COALESCE(...)` drops the column out of the index condition entirely (both
+# measured). Once queries filter on `scope_ref = <caller scope>`, a user scope that
+# could be *named* `$public` would collide with that sentinel in both directions:
+# whoever held it would reach every unscoped link in the store, and links genuinely
+# inside it would read as public.
+#
+# So the collision is made impossible rather than discouraged. `Event.verify()`
+# refuses a scope in this namespace, which means such an event cannot be admitted,
+# replicated, or rebuilt — not merely rejected at one entry point.
+RESERVED_SCOPE_PREFIX = "$"
+
+
 def scope_digest_of(scope_ref: str) -> str:
     """The pseudonymous per-scope marker committed by the v2 preimage (#113 rev 2 OQ3):
     stable so filtering works, digest so stubs need not name the scope. Dictionary attacks

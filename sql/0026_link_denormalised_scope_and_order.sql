@@ -19,7 +19,7 @@
 --
 -- The HLC components come along for the same reason the collation did in 0025: a
 -- candidate window must be selected in the exact order the ranking uses, and
--- `split_part(hlc,...)` on a joined `events` row cannot be indexed here.
+-- `split_part(hlc,...)` on a joined `events` row cannot be indexed here.  hlc-order:allow
 --
 -- Sentinel, not NULL: `(scope_ref IS NULL OR scope_ref = ANY(...))` forces a
 -- BitmapOr and a Sort, and `COALESCE(scope_ref, sentinel)` drops the column out
@@ -98,9 +98,11 @@ ALTER TABLE event_links
 --    fills them on 0024's one-way transition.
 UPDATE event_links l SET
     scope_ref   = COALESCE(e.scope_ref, '$public'),
-    hlc_phys    = split_part(e.hlc, '.', 1)::bigint,
-    hlc_logical = split_part(e.hlc, '.', 2)::bigint,   -- hlc-order:allow (backfill of the
-    origin_node = e.origin_node                        -- very columns the helper reads)
+    -- the backfill of the very columns the helper reads: DDL/DML cannot call it,
+    -- so this is the deliberate duplication, marked per line  hlc-order:allow
+    hlc_phys    = split_part(e.hlc, '.', 1)::bigint,   -- hlc-order:allow
+    hlc_logical = split_part(e.hlc, '.', 2)::bigint,   -- hlc-order:allow
+    origin_node = e.origin_node
 FROM events e
 WHERE e.event_id = l.target_ref AND l.resolved;
 

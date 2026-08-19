@@ -643,13 +643,18 @@ def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryC
         _edge_in = f"{_IN_SCOPE.format(a='e')} AND {_IN_SCOPE.format(a='le')}"
         while frontier_q:
             node, depth, path = frontier_q.pop(0)
+            # The ordering components come back WITH the edge (#214 step 4). They live
+            # on the link row now, so ranking needs no second query per edge — see the
+            # note on `hlc_key` below for what that replaced.
             cur.execute(
-                "SELECT l.relation, l.target_ref AS other, 'out' AS dir FROM event_links l "
+                "SELECT l.relation, l.target_ref AS other, 'out' AS dir, "
+                "       l.hlc_phys, l.hlc_logical, l.origin_node FROM event_links l "
                 "JOIN events e ON e.event_id=l.target_ref "
                 "JOIN events le ON le.event_id=l.asserted_by_event_id "
                 f"WHERE l.resolved AND l.source_ref=%s AND {_edge_in} "
                 "UNION ALL "
-                "SELECT l.relation, l.source_ref AS other, 'in' AS dir FROM event_links l "
+                "SELECT l.relation, l.source_ref AS other, 'in' AS dir, "
+                "       l.hlc_phys, l.hlc_logical, l.origin_node FROM event_links l "
                 "JOIN events e ON e.event_id=l.source_ref "
                 "JOIN events le ON le.event_id=l.asserted_by_event_id "
                 f"WHERE l.resolved AND l.target_ref=%s AND {_edge_in}",
@@ -670,21 +675,24 @@ def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryC
             _withhold(bundle, qc, cur.fetchone()[0])
             # deterministic expansion order (round-2 lock): group, then interleave the
             # fair-share group by alternation, then target hlc/ref
-            def hlc_key(ref: str) -> tuple:
-                """The Python half of the one causal order (#214 step 1). This is
-                THE site the shared definition exists for: it ranks what the SQL
-                windows select, so a divergence here drops rows the ranking
-                wanted. It hand-rolled the parse until review round 1 caught that
-                the refactor had done the six SQL sites and left this one."""
-                cur2 = conn.cursor()
-                cur2.execute("SELECT hlc, origin_node FROM events WHERE event_id=%s", (ref,))
-                row = cur2.fetchone()
-                if row is None:
-                    # unknown refs sort last, by ref — a 4-tuple shaped like the
-                    # key below so the two are comparable
-                    return (1, 0, 0, "", ref)
-                return (0, *hlc_sort_key(row[0], row[1], ref))
-            edges.sort(key=lambda e: (_GROUP_OF.get(e[0], 99), e[0], hlc_key(e[1]), e[1]))
+            def edge_key(edge: tuple) -> tuple:
+                """The Python half of the one causal order (#214 step 1), now read
+                from the edge row itself.
+
+                This used to open a cursor and run `SELECT hlc, origin_node FROM
+                events WHERE event_id = %s` inside the sort key. `list.sort` calls
+                the key once per element, so that was exactly one round trip per
+                edge, issued BEFORE the row cap was consulted — measured linear at
+                10/100/1000/10000 edges. A node with 100k visible edges paid 100k
+                round trips to return five rows.
+
+                Unresolved endpoints sort last: their ordering columns are still
+                NULL, because the endpoint is not held here yet."""
+                _relation, other, _dir, phys, logical, node_id = edge
+                if phys is None:
+                    return (1, 0, 0, "", other)
+                return (0, phys, logical, node_id, other)
+            edges.sort(key=lambda e: (_GROUP_OF.get(e[0], 99), e[0], edge_key(e), e[1]))
             # alternate supports/contradicts inside the fair-share group
             fair = [e for e in edges if e[0] in ("supports", "contradicts")]
             sup = [e for e in fair if e[0] == "supports"]
@@ -696,7 +704,7 @@ def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryC
             ordered = ([e for e in edges if _GROUP_OF.get(e[0], 99) < 1]
                        + interleaved
                        + [e for e in edges if _GROUP_OF.get(e[0], 99) > 1])
-            for relation, other, direction in ordered:
+            for relation, other, direction, *_order in ordered:
                 if other in visited:
                     bundle.traversal_frontier.append(FrontierEntry(node, relation, other, "cycle"))
                     continue
