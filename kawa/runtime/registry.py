@@ -48,15 +48,17 @@ def _load_herdr(session: str) -> RuntimeBackend:
     return HerdrBackend(session)
 
 
+def _load_tmux(session: str) -> RuntimeBackend:
+    from kawa.runtime.tmux_backend import TmuxBackend
+
+    return TmuxBackend(session)
+
+
 # name -> loader. A loader imports its module INSIDE the call, so nothing here reaches
 # a backend implementation until someone asks for that backend by name.
-#
-# `tmux` is named in AUTO_ORDER and absent here on purpose: it arrives in #204 step 2,
-# and offering it in `--help` before it exists would put a lie in the interface. The
-# resolver skips an order entry with no loader, so the declared policy can lead the
-# registry rather than wait for it.
 LOADERS: dict[str, Callable[[str], RuntimeBackend]] = {
     "herdr": _load_herdr,
+    "tmux": _load_tmux,
 }
 
 CHOICES: tuple[str, ...] = ("auto", *sorted(LOADERS))
