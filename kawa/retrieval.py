@@ -275,6 +275,18 @@ _TIER = {"anchor_lookup": 1, "standing": 1, "repository_normative": 1,
 _WITHIN_TIER = ("anchor_lookup", "standing", "repository_normative", "evidence",
                 "neighborhood", "precedent", "lexical", "vector")
 
+# The smallest budget at which a class can honour its own contract. One row is
+# enough for most, but `evidence` carries Lock 2 — a biting cap must never keep
+# supporting evidence while silently dropping contradiction — and ONE row cannot
+# represent two sides. At budget 1 the executor previously returned two records
+# to keep both, which is how the class exceeded its own budget (#211).
+#
+# So the conflict is resolved where it belongs, at the floor rather than in the
+# executor: evidence is planned with at least 2, or not planned at all. A ceiling
+# that cannot afford balanced evidence says so (`tier_budget_exhausted`) instead
+# of quietly returning one side and letting a reader mistake it for the whole.
+_FLOOR = {"evidence": 2}
+
 _PROFILE_OF = {"work": "design_change", "plan": "design_change",
                "event": "design_change", "claim_event": "adversarial_review"}
 _SIDEBAND = {"design_change": (4, 2), "adversarial_review": (6, 3)}   # (normative, precedent) rows
@@ -327,11 +339,26 @@ def compile_plan(bound: BoundIntent) -> RetrievalPlan:
     # 1. one row each, in tier order, for as far as the ceiling reaches. This is where
     #    tiering earns its keep: at limit=1 the answer is the anchor, not a fragment of
     #    everything, and the classes that fall off the end are the expansive ones.
-    for purpose, _reason in ordered:
-        if remaining <= 0:
+    # Tier boundaries are HARD. Admitting a cheaper lower tier after a higher one
+    # failed its floor looked like thrift and was a contradiction: at limit=4 the
+    # plan skipped tier-2 evidence, admitted tier-3 neighborhood, and reported
+    # "exhausted before tier 2" while tier 3 sat in the sections. Reach outranking
+    # grounding is precisely what tiering exists to prevent, so a tier that cannot
+    # be floored ends the admission — the surplus tops up what is already planned.
+    for tier in sorted({_TIER[p] for p, _ in ordered}):
+        in_tier = [pr for pr in ordered if _TIER[pr[0]] == tier]
+        floored = {}
+        left = remaining
+        for purpose, _reason in in_tier:           # waterfall WITHIN the tier
+            floor = _FLOOR.get(purpose, 1)
+            if left < floor:
+                break
+            floored[purpose] = floor
+            left -= floor
+        budgets.update(floored)
+        remaining = left
+        if len(floored) < len(in_tier):            # this tier is incomplete: stop here
             break
-        budgets[purpose] = 1
-        remaining -= 1
 
     planned = [pr for pr in ordered if pr[0] in budgets]
     unplanned = [pr for pr in ordered if pr[0] not in budgets]
@@ -514,29 +541,48 @@ def _exec_standing(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass
 
 def _exec_evidence(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass,
                    bundle: Bundle, viewer_scopes: frozenset[str]) -> list[Record]:
-    """Resolved supports/contradicts edges touching the anchor — fair-share budget between
-    the two relation types (Lock 2): floor(budget/2) each, leftovers interleaved."""
+    """Resolved supports/contradicts edges touching the anchor, sharing ONE budget.
+
+    Lock 2 says a biting cap must never keep supporting evidence while silently
+    dropping contradiction. It used to do that by giving each relation its own
+    `LIMIT per`, with `per = max(budget // 2, 1)` — which meant a class with
+    budget 1 returned TWO records, and #211 measured the class exceeding its own
+    budget for every odd budget below 4. The fairness was real and the bound was
+    not.
+
+    The two are now separable: fetch up to `budget` from EACH relation (so a side
+    with few edges cannot be starved by a side with many), then interleave and
+    truncate to `budget`. At most `2 * budget` rows are read to decide `budget`
+    rows — bounded by the class budget, never by the anchor's degree — and the
+    result satisfies `len(out) <= qc.budget` for every budget, including 1.
+
+    Interleaving rather than concatenating is what keeps the truncation fair: the
+    cut falls evenly across both sides at any budget. The order is fixed —
+    `supports` first — so at an odd budget the extra row is a support. That
+    residual is deliberate: the floor of 2 means the smallest odd budget is 3
+    (a 2:1 split, converging to even as the budget grows), and alternating by
+    anchor would trade a predictable, auditable order for no change in balance.
+    """
     anchor = plan.bound.anchor_ref
     scopes = list(viewer_scopes)
-    out: list[Record] = []
+    per_relation: dict[str, list[Record]] = {}
     with conn.cursor() as cur:
-        per = max(qc.budget // 2, 1)
         # #146 F4: an edge is disclosed only when BOTH the endpoint event AND the
         # asserting link event are in scope — a restricted-scope assertion between
         # public events is itself restricted content (who related what to what).
         _edge_in = f"{_IN_SCOPE.format(a='e')} AND {_IN_SCOPE.format(a='le')}"
-        for relation in ("supports", "contradicts"):     # fixed order, EQUAL budget — no bias
+        for relation in ("supports", "contradicts"):     # fixed order, EQUAL window — no bias
             cur.execute(
                 "SELECT l.source_ref FROM event_links l "
                 "JOIN events e ON e.event_id=l.source_ref "
                 "JOIN events le ON le.event_id=l.asserted_by_event_id "
                 f"WHERE l.resolved AND l.relation=%s AND l.target_ref=%s AND {_edge_in} "
-                "ORDER BY l.source_ref LIMIT %s", (relation, anchor, scopes, scopes, per))
-            for (src,) in cur.fetchall():
-                kind, summary = _summary_of(cur, src)
-                out.append(Record(ref=src, kind=kind, summary=summary, backend=qc.backend,
-                                  class_id=qc.class_id, path=f"{anchor} <-{relation}- {src}",
-                                  standing=_standing_of(cur, src)))
+                "ORDER BY l.source_ref LIMIT %s",
+                (relation, anchor, scopes, scopes, qc.budget))
+            # refs only here: summary/standing are two secondary queries EACH, and up
+            # to half of these rows are about to be truncated away. Hydrate after the
+            # cut, not before (review round 1).
+            per_relation[relation] = [src for (src,) in cur.fetchall()]
             # withheld: aggregate count only — no refs, no per-relation split (a split
             # would itself disclose which side of the evidence is being withheld)
             cur.execute(
@@ -546,6 +592,22 @@ def _exec_evidence(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryClass
                 f"WHERE l.resolved AND l.relation=%s AND l.target_ref=%s AND NOT ({_edge_in})",
                 (relation, anchor, scopes, scopes))
             _withhold(bundle, qc, cur.fetchone()[0])
+
+    sup, con = per_relation["supports"], per_relation["contradicts"]
+    interleaved: list[tuple[str, str]] = []
+    for i in range(max(len(sup), len(con))):
+        if i < len(sup):
+            interleaved.append(("supports", sup[i]))
+        if i < len(con):
+            interleaved.append(("contradicts", con[i]))
+
+    out: list[Record] = []
+    with conn.cursor() as cur:
+        for relation, src in interleaved[:qc.budget]:
+            kind, summary = _summary_of(cur, src)
+            out.append(Record(ref=src, kind=kind, summary=summary, backend=qc.backend,
+                              class_id=qc.class_id, path=f"{anchor} <-{relation}- {src}",
+                              standing=_standing_of(cur, src)))
     return out
 
 

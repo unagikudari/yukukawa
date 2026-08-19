@@ -19,6 +19,8 @@ import os
 
 import pytest
 
+from kawa.application.services import Kawa
+from kawa.domain.identity import IdentityContext
 from kawa.retrieval import (FLEET_SCOPES, Intent, compile_plan, resolve_bindings)
 
 psycopg = pytest.importorskip("psycopg")
@@ -36,6 +38,12 @@ def conn():  # type: ignore[no-untyped-def]
     yield c
     c.rollback()
     c.close()
+
+
+@pytest.fixture()
+def k(conn):  # type: ignore[no-untyped-def]
+    return Kawa(conn, identity=IdentityContext.from_local_runtime(
+        node_ref="test", actor_ref="pytest"))
 
 
 def _plans(conn, limit):  # type: ignore[no-untyped-def]
@@ -122,3 +130,26 @@ def test_apportionment_is_reproducible(conn, limit) -> None:  # type: ignore[no-
     """Same intent, same catalogue state, same plan — byte-identical, including the
     skip list. Determinism is what makes the ceiling auditable."""
     assert _plans(conn, limit) == _plans(conn, limit)
+
+
+def test_a_tier_that_cannot_be_floored_ends_the_admission(conn, k) -> None:  # type: ignore[no-untyped-def]
+    """Tier boundaries are hard.
+
+    Admitting a cheaper LOWER tier after a higher one failed its floor looks like
+    thrift and is a contradiction: at limit=4 the plan skipped tier-2 evidence,
+    admitted tier-3 neighborhood, and reported "exhausted before tier 2" while
+    tier 3 sat in the sections. Reach outranking grounding is exactly what tiering
+    exists to prevent (review round 1 of #220).
+
+    The surplus tops up what is already planned instead."""
+    claim = k.record_claim("x")
+    plan = compile_plan(resolve_bindings(conn, Intent(about=claim.event_id, limit=4),
+                                         viewer_scopes=FLEET))
+    planned = {q.purpose for q in plan.query_classes}
+    assert "evidence" not in planned                 # tier 2 could not meet its floor of 2
+    assert not any(_TIER_OF[p] == 3 for p in planned), planned   # so no tier 3 either
+    assert plan.total_budget == 4                    # and the surplus was not wasted
+
+
+_TIER_OF = {"anchor_lookup": 1, "standing": 1, "repository_normative": 1,
+            "evidence": 2, "neighborhood": 3, "precedent": 3, "vector": 3, "lexical": 3}

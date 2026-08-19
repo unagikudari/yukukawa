@@ -348,3 +348,64 @@ def test_scope_filter_is_deterministic(conn, k, k_restricted) -> None:  # type: 
     b1 = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
     b2 = retrieve(conn, Intent(about=claim.event_id), viewer_scopes=FLEET)
     assert b1.sections == b2.sections and b1.scope_withheld == b2.scope_withheld
+
+
+# ---- #214 step 3: the ceiling holds over RECORDS, not just over budgets ----
+
+@pytest.mark.parametrize("limit", [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 16, 59])
+def test_records_returned_never_exceed_the_limit(conn, k, limit) -> None:  # type: ignore[no-untyped-def]
+    """Step 2 made `sum(class budgets) <= limit` true at compile time. Its review
+    then demonstrated the runtime gap: `_exec_evidence` computed
+    `per = max(budget // 2, 1)` and applied it to BOTH relations, so a class with
+    budget 1 returned two records and the Bundle exceeded the ceiling by one.
+
+    This asserts the property callers actually care about — how many records come
+    back — with an anchor that has more evidence on both sides than any budget
+    here can hold, so the cap genuinely bites.
+
+    Note what it does NOT reliably catch, measured: run against the pre-step-3
+    executor this test still PASSES, because slack in other classes (which return
+    fewer rows than their budget) absorbs the overrun. The class-level assertion
+    below is the one that bites — it fails there with
+    `limit=4: evidence returned 2 > 1`. This one guards the caller-facing
+    property; that one guards the mechanism."""
+    claim = _claim_with_mixed_evidence(k, n_sup=6, n_con=6)
+    bundle = retrieve(conn, Intent(about=claim.event_id, limit=limit), viewer_scopes=FLEET)
+    total = sum(len(records) for records in bundle.sections.values())
+    assert total <= limit, f"limit={limit} returned {total} records"
+
+
+def test_evidence_never_exceeds_its_own_class_budget(conn, k) -> None:  # type: ignore[no-untyped-def]
+    """The class-level half of the same property, for every budget the planner can
+    hand it — `#211` measured the overrun at every odd budget below 4."""
+    claim = _claim_with_mixed_evidence(k, n_sup=6, n_con=6)
+    for limit in range(0, 20):
+        bundle = retrieve(conn, Intent(about=claim.event_id, limit=limit), viewer_scopes=FLEET)
+        for qc in bundle.plan.query_classes:
+            if qc.purpose == "evidence":
+                got = len(bundle.sections.get(qc.class_id, []))
+                assert got <= qc.budget, f"limit={limit}: evidence returned {got} > {qc.budget}"
+
+
+def test_a_biting_cap_keeps_both_sides_or_plans_neither(conn, k) -> None:  # type: ignore[no-untyped-def]
+    """Lock 2 and the ceiling used to be in direct conflict at budget 1: one row
+    cannot represent two sides, and the executor resolved it by returning two —
+    breaking the bound to keep the fairness.
+
+    Resolved at the floor instead. Evidence is planned with at least 2 or not
+    planned at all, so whenever it runs, both sides are representable; and a
+    ceiling that cannot afford balanced evidence says so rather than quietly
+    returning one side for a reader to mistake for the whole."""
+    claim = _claim_with_mixed_evidence(k, n_sup=6, n_con=6)
+    for limit in range(0, 20):
+        bundle = retrieve(conn, Intent(about=claim.event_id, limit=limit), viewer_scopes=FLEET)
+        ev = [q for q in bundle.plan.query_classes if q.purpose == "evidence"]
+        if not ev:
+            skipped = {s.purpose for s in bundle.skipped_classes}
+            assert "evidence" in skipped, f"limit={limit}: evidence vanished without a word"
+            continue
+        assert ev[0].budget >= 2, f"limit={limit}: evidence planned below its floor"
+        records = bundle.sections.get(ev[0].class_id, [])
+        if len(records) >= 2:
+            paths = " ".join(r.path for r in records)
+            assert "supports" in paths and "contradicts" in paths, f"limit={limit}: one-sided"
