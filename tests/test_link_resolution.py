@@ -103,16 +103,28 @@ def test_resolution_does_not_run_backwards(conn) -> None:  # type: ignore[no-unt
     conn.rollback()
 
 
-def test_an_already_resolved_link_cannot_be_rewritten(conn) -> None:  # type: ignore[no-untyped-def]
-    """Once resolved, the row is closed to every UPDATE — which is what makes
-    'a resolution may populate NULL columns' safe without inspecting them: the
-    transition can happen at most once per row."""
+def test_a_populated_column_can_never_be_rewritten(conn) -> None:  # type: ignore[no-untyped-def]
+    """The property that makes 'a resolution may also fill columns' safe.
+
+    0026 generalised the guard from "the resolution transition" to "the resolution
+    transition OR filling columns that are still NULL", because a migration
+    backfill is the other one-shot write of derived state and 0024 refused it. A
+    no-op UPDATE on a resolved row is permitted under that rule and changes
+    nothing; what must stay impossible is rewriting a value that is already there,
+    and that is what this asserts."""
     with conn.cursor() as cur:
         _pending(cur)
-        _resolve(cur)
+        _resolve(cur)                                # scope_ref carries its default
     conn.commit()
+
     with conn.cursor() as cur, pytest.raises(psycopg.errors.RaiseException):
-        cur.execute("UPDATE event_links SET resolved = true WHERE source_ref='s1'")
+        cur.execute("UPDATE event_links SET scope_ref='other' WHERE source_ref='s1'")
+    conn.rollback()
+
+    with conn.cursor() as cur:                       # and a still-NULL column may fill
+        cur.execute("UPDATE event_links SET hlc_logical = 7 "
+                    "WHERE source_ref='s1' AND hlc_logical IS NULL")
+        assert cur.rowcount == 1
     conn.rollback()
 
 

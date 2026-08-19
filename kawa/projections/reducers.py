@@ -194,12 +194,41 @@ def recompute_plan_state(cur: psycopg.Cursor, plan_ref: str, event_id: str) -> N
     )
 
 
+# The projection-only sentinel for "unscoped". Raw `events.scope_ref` stays NULL for
+# v1 envelopes — `Event.verify()` structurally forbids a v1 envelope from carrying a
+# scope — so the sentinel exists HERE, where a stored NOT NULL value keeps the
+# authorization predicate plain equality and therefore indexable (#214 step 4).
+PUBLIC_SCOPE = "$public"
+
+
+def _hlc_parts(hlc: str) -> tuple[int, int]:
+    """The ordering components, parsed once through the one definition."""
+    from kawa.domain.ids import parse_hlc
+    parsed = parse_hlc(hlc)
+    if parsed is None:                    # admissibility rejects these upstream (#145)
+        raise ValueError(f"cannot denormalise a malformed HLC: {hlc!r}")
+    return parsed[0], parsed[1]
+
+
+def _asserter_scope(event: Event) -> str:
+    """The asserting event is THIS event: its scope is known without a lookup."""
+    return event.scope_ref or PUBLIC_SCOPE
+
+
 def reduce(cur: psycopg.Cursor, event: Event) -> None:
     p = event.payload
     # Universal backfill (#97 2A): ANY arriving event may be the target of links asserted
     # before it existed (cross-origin replication order) — resolve them deterministically.
-    cur.execute("UPDATE event_links SET resolved = true WHERE target_ref = %s AND NOT resolved",
-                (event.event_id,))
+    # The resolution ALSO fills the denormalised endpoint columns (#214 step 4): the
+    # authorization predicate and the ordering key must live on the link row, or a
+    # bounded candidate window has to JOIN to `events` per row and stops being bounded.
+    # 0024/0026's guard permits exactly this — one transition, columns that were NULL.
+    cur.execute(
+        "UPDATE event_links l SET resolved = true, "
+        "  scope_ref = COALESCE(e.scope_ref, %s), "
+        "  hlc_phys = %s, hlc_logical = %s, origin_node = e.origin_node "
+        "FROM events e WHERE e.event_id = %s AND l.target_ref = %s AND NOT l.resolved",
+        (PUBLIC_SCOPE, *_hlc_parts(event.hlc), event.event_id, event.event_id))
     touched_links = cur.rowcount > 0
     if isinstance(p, (PlanCreated, PlanLifecycleChanged)):
         recompute_plan_state(cur, p.plan_ref, event.event_id)     # #166: one writer, pure fold
@@ -252,10 +281,17 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
     elif isinstance(p, LinkAsserted):
         # projection row; dedup key = the triple, first asserter kept for attribution
         cur.execute(
-            "INSERT INTO event_links (source_ref, relation, target_ref, resolved, asserted_by_event_id) "
-            "VALUES (%s,%s,%s, EXISTS(SELECT 1 FROM events WHERE event_id=%s), %s) "
+            "INSERT INTO event_links (source_ref, relation, target_ref, resolved, "
+            "  asserted_by_event_id, scope_ref, asserter_scope_ref, "
+            "  hlc_phys, hlc_logical, origin_node) "
+            "SELECT %s,%s,%s, e.event_id IS NOT NULL, %s, "
+            "  COALESCE(e.scope_ref, %s), %s, "
+            "  split_part(e.hlc,'.',1)::bigint, split_part(e.hlc,'.',2)::bigint, "  # hlc-order:allow
+            "  e.origin_node "
+            "FROM (SELECT 1) _ LEFT JOIN events e ON e.event_id = %s "
             "ON CONFLICT (source_ref, relation, target_ref) DO NOTHING",
-            (p.source_ref, p.relation, p.target_ref, p.target_ref, event.event_id),
+            (p.source_ref, p.relation, p.target_ref, event.event_id, PUBLIC_SCOPE,
+             _asserter_scope(event), p.target_ref),
         )
         touched_links = True
     elif isinstance(p, ObservationRecorded):
