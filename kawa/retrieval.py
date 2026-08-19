@@ -50,6 +50,8 @@ from typing import Protocol, Sequence
 
 import psycopg
 
+from kawa.domain.ids import hlc_sort_key
+
 # Lock 2: priority GROUPS. supports+contradicts share one group with fair-share budgeting;
 # a fixed supports-first order would turn a row cap into confirmation bias.
 _RELATION_GROUPS: list[tuple[str, ...]] = [
@@ -501,13 +503,19 @@ def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryC
             # deterministic expansion order (round-2 lock): group, then interleave the
             # fair-share group by alternation, then target hlc/ref
             def hlc_key(ref: str) -> tuple:
+                """The Python half of the one causal order (#214 step 1). This is
+                THE site the shared definition exists for: it ranks what the SQL
+                windows select, so a divergence here drops rows the ranking
+                wanted. It hand-rolled the parse until review round 1 caught that
+                the refactor had done the six SQL sites and left this one."""
                 cur2 = conn.cursor()
                 cur2.execute("SELECT hlc, origin_node FROM events WHERE event_id=%s", (ref,))
                 row = cur2.fetchone()
                 if row is None:
-                    return (1, 0, 0, ref)                # uniform 4-tuple: unknown refs sort last, by ref
-                phys, logical, _node = row[0].split(".", 2)
-                return (0, int(phys), int(logical), row[1])
+                    # unknown refs sort last, by ref — a 4-tuple shaped like the
+                    # key below so the two are comparable
+                    return (1, 0, 0, "", ref)
+                return (0, *hlc_sort_key(row[0], row[1], ref))
             edges.sort(key=lambda e: (_GROUP_OF.get(e[0], 99), e[0], hlc_key(e[1]), e[1]))
             # alternate supports/contradicts inside the fair-share group
             fair = [e for e in edges if e[0] in ("supports", "contradicts")]

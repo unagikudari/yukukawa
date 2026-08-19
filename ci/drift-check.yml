@@ -14,6 +14,12 @@ on:
       - "scripts/lint_publication_boundary.py"
       - "registry/publication-baseline.json"
       - ".github/workflows/drift-check.yml"
+      # the HLC-ordering lint guards CODE, so it must be triggered by code —
+      # a lint wired to a path filter that excludes what it lints is not a
+      # mechanism, it is a mechanism-shaped file (#214 step 1)
+      - "kawa/**"
+      - "scripts/**"
+      - "tests/**"
   push:
     branches: [main, "agent/**", "spec/**"]
 
@@ -29,3 +35,5 @@ jobs:
         run: python3 scripts/lint_vocabulary_drift.py
       - name: publication-boundary lint (#152 gate-1)
         run: python3 scripts/lint_publication_boundary.py
+      - name: HLC-ordering lint (#214 step 1)
+        run: python3 scripts/lint_hlc_order.py

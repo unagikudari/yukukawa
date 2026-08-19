@@ -26,6 +26,8 @@ import subprocess
 
 import psycopg
 
+from kawa.domain.ids import hlc_order_sql
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOC_ROOT = os.path.join(REPO_ROOT, "docs")
 
@@ -206,8 +208,7 @@ def _db_facets(want: set[str]) -> dict:  # type: ignore[type-arg]
                 out["event_frontier"] = _facet({r[0]: r[1] for r in cur.fetchall()},
                                                "authoritative_source")
             if "logical_time" in want:
-                cur.execute("SELECT hlc FROM events ORDER BY split_part(hlc,'.',1)::bigint DESC, "
-                            "split_part(hlc,'.',2)::bigint DESC, origin_node DESC LIMIT 1")
+                cur.execute(f"SELECT hlc FROM events ORDER BY {hlc_order_sql(unique='event_id')} LIMIT 1")
                 row = cur.fetchone()
                 out["logical_time"] = _facet(row[0] if row else None, "authoritative_source")
             if "schema_revision" in want:

@@ -9,6 +9,8 @@ import json
 
 import psycopg
 
+from kawa.domain.ids import hlc_order_sql
+
 from kawa.domain.events import (
     AuthorityConfiguration,
     AuthorityReceipt,
@@ -51,8 +53,7 @@ _LATEST_RESULT_SQL = (
     "SELECT er.outcome, er.result_ref FROM event_result er "
     "JOIN events e ON e.event_id = er.event_id WHERE er.work_ref = %s "
     "AND NOT EXISTS (SELECT 1 FROM result_occurrence_quarantine q WHERE q.event_id = er.event_id) "
-    "ORDER BY split_part(e.hlc,'.',1)::bigint DESC, split_part(e.hlc,'.',2)::bigint DESC, "
-    "e.origin_node DESC LIMIT 1"
+    f"ORDER BY {hlc_order_sql(hlc='e.hlc', tiebreak='e.origin_node', unique='e.event_id')} LIMIT 1"
 )
 
 # first consumer of an occurrence key: the same causal total order, ascending — arrival and
@@ -61,7 +62,7 @@ _OCCURRENCE_CONSUMERS_SQL = (
     "SELECT er.event_id FROM event_result er "
     "JOIN events e ON e.event_id = er.event_id "
     "WHERE er.work_ref = %s AND er.occurrence_key = %s "
-    "ORDER BY split_part(e.hlc,'.',1)::bigint, split_part(e.hlc,'.',2)::bigint, e.origin_node"
+    f"ORDER BY {hlc_order_sql(hlc='e.hlc', tiebreak='e.origin_node', unique='e.event_id', desc=False)}"
 )
 
 
@@ -89,8 +90,7 @@ def _requarantine_occurrence(cur: psycopg.Cursor, work_ref: str, occurrence_key:
 # ---- symmetric fold (#166): current_* rows are PURE FUNCTIONS of the payload fact set ----
 # The strict total order every fold shares: (hlc_physical, hlc_logical, origin_node),
 # lexicographic — the _LATEST_RESULT_SQL doctrine, named once. No bare `hlc >=` anywhere.
-_TOTAL_DESC = ("split_part(e.hlc,'.',1)::bigint DESC, split_part(e.hlc,'.',2)::bigint DESC, "
-               "e.origin_node DESC")
+_TOTAL_DESC = hlc_order_sql(hlc="e.hlc", tiebreak="e.origin_node", unique="e.event_id")
 
 _LATEST_DERIVE_SQL = (
     "SELECT ew.plan_ref, ew.work_kind, ew.subject_ref, ew.role_requirement "

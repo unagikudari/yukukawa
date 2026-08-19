@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import psycopg
 
+from kawa.domain.ids import hlc_order_sql
+
 # execution states that mean "nothing to orient on": the work is done or withdrawn.
 _SETTLED = ("finished", "retired")
 # stalled = an explicit whitelist (review 1d352c3c F1), never NOT IN: a future ACTIVE state
@@ -24,8 +26,7 @@ STALLED_STATES = ("blocked", "retryable", "result_recorded", "execution_unknown"
 # the canonical "latest event" order — causal HLC, origin as final tiebreak (§3, same rule
 # as reducers._LATEST_RESULT_SQL). recorded_at is local wall-clock + replica arrival time,
 # so it may disagree across nodes; it is DISPLAYED as the freshness stamp, never sorted on.
-_LATEST_EVENT_ORDER = ("ORDER BY split_part(hlc,'.',1)::bigint DESC, "
-                       "split_part(hlc,'.',2)::bigint DESC, origin_node DESC LIMIT 1")
+_LATEST_EVENT_ORDER = f"ORDER BY {hlc_order_sql(unique='event_id')} LIMIT 1"
 OBJECTIVE_CLIP = 110
 
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import psycopg
 
+from kawa.domain.ids import hlc_order_sql
+
 from kawa.domain.events import (
     ClaimRecorded,
     Event,
@@ -189,8 +191,7 @@ class Kawa:
                "  SELECT e2.objective, e2.constraints, e2.expected_observations "
                "  FROM event_work e2 JOIN events ev ON ev.event_id = e2.event_id "
                "  WHERE e2.work_ref = w.work_ref "
-               "  ORDER BY split_part(ev.hlc,'.',1)::bigint DESC, "
-               "           split_part(ev.hlc,'.',2)::bigint DESC, ev.origin_node DESC "
+               f"  ORDER BY {hlc_order_sql(hlc='ev.hlc', tiebreak='ev.origin_node', unique='ev.event_id')} "
                "  LIMIT 1) ew ON true "
                "WHERE w.execution='ready'")
         params: list[str] = []
@@ -289,8 +290,7 @@ class Kawa:
                 "LEFT JOIN LATERAL (SELECT e2.objective, e2.constraints, e2.expected_observations "
                 "  FROM event_work e2 JOIN events ev ON ev.event_id = e2.event_id "
                 "  WHERE e2.work_ref = w.work_ref "
-                "  ORDER BY split_part(ev.hlc,'.',1)::bigint DESC, "
-                "           split_part(ev.hlc,'.',2)::bigint DESC, ev.origin_node DESC LIMIT 1) ew ON true "
+                f"  ORDER BY {hlc_order_sql(hlc='ev.hlc', tiebreak='ev.origin_node', unique='ev.event_id')} LIMIT 1) ew ON true "
                 "WHERE w.work_ref=%s AND w.execution='ready'", (work_ref,))
             row = cur.fetchone()
         if row is None:

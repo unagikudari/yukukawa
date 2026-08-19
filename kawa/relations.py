@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import psycopg
 
+from kawa.domain.ids import hlc_order_sql
+
 # frozen Event→Relation registry (rev 3 §2/§6) — exactness-tested; storage direction is
 # the ASSERTING event's own direction; traversal is bidirectional so no query is
 # privileged by row orientation.
@@ -36,8 +38,11 @@ MAX_TOTAL = 100
 
 # deterministic neighbor ordering (rev 3 §7): canonical causal order + event_id tie-break —
 # the retained MAX_FAN_OUT edges are identical across nodes and rebuilds
-_EDGE_ORDER = ("ORDER BY split_part(effective_hlc,'.',1)::bigint DESC, "
-               "split_part(effective_hlc,'.',2)::bigint DESC, basis_event DESC")
+# `current_relations` has no single unique column, and the query below matches on
+# `target_id`, so tie-breaking on it would compare a value every matched row shares
+# (review round 2). The row identity is the whole relation tuple.
+_RELATION_KEY = ("source_kind", "source_id", "relation_kind", "target_kind", "target_id")
+_EDGE_ORDER = f"ORDER BY {hlc_order_sql(hlc='effective_hlc', tiebreak='basis_event', unique=_RELATION_KEY)}"
 
 _KNOWN_PLAN_LIFECYCLES = ("draft", "reviewing", "ready", "running", "blocked", "ended")
 _KNOWN_WORK_EXECUTIONS = ("ready", "blocked", "finished", "retired", "retryable",
