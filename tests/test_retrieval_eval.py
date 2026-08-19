@@ -136,7 +136,8 @@ def test_verdict_phases_and_double_blind_arithmetic(conn_a, seeded) -> None:  # 
     healthy = _corpus(plan_ev, claim_ev, isolated)
     rh = measure(conn_a, healthy, json.dumps(healthy).encode())
     assert rh["verdict"] == "NO_GO"
-    assert all(not c["sub_bar"] for c in rh["classes"].values())
+    assert all(not c["sub_bar"] for c in rh["classes"].values()), \
+        {k: v for k, v in rh["classes"].items() if v["sub_bar"]}
     # corpus pinning: a one-byte corpus change changes the digest
     assert r1["corpus_digest"] != rh["corpus_digest"]
 

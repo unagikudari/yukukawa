@@ -9,7 +9,7 @@ import json
 
 import psycopg
 
-from kawa.domain.ids import hlc_order_sql
+from kawa.domain.ids import PUBLIC_SCOPE as _PUBLIC_SCOPE, hlc_order_sql
 
 from kawa.domain.events import (
     AuthorityConfiguration,
@@ -198,7 +198,7 @@ def recompute_plan_state(cur: psycopg.Cursor, plan_ref: str, event_id: str) -> N
 # v1 envelopes — `Event.verify()` structurally forbids a v1 envelope from carrying a
 # scope — so the sentinel exists HERE, where a stored NOT NULL value keeps the
 # authorization predicate plain equality and therefore indexable (#214 step 4).
-PUBLIC_SCOPE = "$public"
+PUBLIC_SCOPE = _PUBLIC_SCOPE   # re-export: one definition, in kawa.domain.ids
 
 
 def _hlc_parts(hlc: str) -> tuple[int, int]:
@@ -225,11 +225,24 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
     # 0024/0026's guard permits exactly this — one transition, columns that were NULL.
     cur.execute(
         "UPDATE event_links l SET resolved = true, "
-        "  scope_ref = COALESCE(e.scope_ref, %s), "
-        "  hlc_phys = %s, hlc_logical = %s, origin_node = e.origin_node "
+        "  target_scope_ref = COALESCE(e.scope_ref, %s), "
+        "  target_hlc_phys = %s, target_hlc_logical = %s, target_origin_node = e.origin_node "
         "FROM events e WHERE e.event_id = %s AND l.target_ref = %s AND NOT l.resolved",
         (PUBLIC_SCOPE, *_hlc_parts(event.hlc), event.event_id, event.event_id))
     touched_links = cur.rowcount > 0
+    # ...and the symmetric case, which 0026 had no column for: an arriving event may be
+    # the SOURCE of links asserted before it existed. Until this fills, the in-direction
+    # scope is NULL and no in-leaf can step to it -- correct while it lasts (the event
+    # was not held) and wrong the moment it IS held (#222). Guarded by IS NULL so it
+    # stays a one-shot fill of derived state, which is what sql/0029's guard permits.
+    cur.execute(
+        "UPDATE event_links l SET "
+        "  source_scope_ref = COALESCE(e.scope_ref, %s), "
+        "  source_hlc_phys = %s, source_hlc_logical = %s, source_origin_node = e.origin_node "
+        "FROM events e WHERE e.event_id = %s AND l.source_ref = %s "
+        "  AND l.source_scope_ref IS NULL",
+        (PUBLIC_SCOPE, *_hlc_parts(event.hlc), event.event_id, event.event_id))
+    touched_links = touched_links or cur.rowcount > 0
     if isinstance(p, (PlanCreated, PlanLifecycleChanged)):
         recompute_plan_state(cur, p.plan_ref, event.event_id)     # #166: one writer, pure fold
     elif isinstance(p, WorkDerived):
@@ -282,16 +295,23 @@ def reduce(cur: psycopg.Cursor, event: Event) -> None:
         # projection row; dedup key = the triple, first asserter kept for attribution
         cur.execute(
             "INSERT INTO event_links (source_ref, relation, target_ref, resolved, "
-            "  asserted_by_event_id, scope_ref, asserter_scope_ref, "
-            "  hlc_phys, hlc_logical, origin_node) "
-            "SELECT %s,%s,%s, e.event_id IS NOT NULL, %s, "
-            "  COALESCE(e.scope_ref, %s), %s, "
-            "  split_part(e.hlc,'.',1)::bigint, split_part(e.hlc,'.',2)::bigint, "  # hlc-order:allow
-            "  e.origin_node "
-            "FROM (SELECT 1) _ LEFT JOIN events e ON e.event_id = %s "
+            "  asserted_by_event_id, asserter_scope_ref, "
+            "  target_scope_ref, target_hlc_phys, target_hlc_logical, target_origin_node, "
+            "  source_scope_ref, source_hlc_phys, source_hlc_logical, source_origin_node) "
+            "SELECT %s,%s,%s, t.event_id IS NOT NULL, %s, %s, "
+            "  COALESCE(t.scope_ref, %s), "
+            "  split_part(t.hlc,'.',1)::bigint, split_part(t.hlc,'.',2)::bigint, "  # hlc-order:allow
+            "  t.origin_node, "
+            "  CASE WHEN s.event_id IS NOT NULL THEN COALESCE(s.scope_ref, %s) END, "
+            "  split_part(s.hlc,'.',1)::bigint, split_part(s.hlc,'.',2)::bigint, "  # hlc-order:allow
+            "  s.origin_node "
+            "FROM (SELECT 1) _ "
+            "LEFT JOIN events t ON t.event_id = %s "
+            "LEFT JOIN events s ON s.event_id = %s "
             "ON CONFLICT (source_ref, relation, target_ref) DO NOTHING",
-            (p.source_ref, p.relation, p.target_ref, event.event_id, PUBLIC_SCOPE,
-             _asserter_scope(event), p.target_ref),
+            (p.source_ref, p.relation, p.target_ref, event.event_id,
+             _asserter_scope(event), PUBLIC_SCOPE, PUBLIC_SCOPE,
+             p.target_ref, p.source_ref),
         )
         touched_links = True
     elif isinstance(p, ObservationRecorded):

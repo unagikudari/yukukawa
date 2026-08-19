@@ -49,7 +49,15 @@ _HANDROLLED = re.compile(r"split_part\s*\(\s*(?:[^()]*?)\bhlc\b", re.I | re.S)
 # the Python side -- `sorted(rows, key=lambda r: r["hlc"])` -- was still invisible,
 # which is the SAME defect from the other engine: text order puts 1.10 below 1.2.
 # Narrow on purpose: a sort key that mentions hlc must come from hlc_sort_key.
-_PY_TEXT_SORT = re.compile(r"\bkey\s*=(?:(?!hlc_sort_key)[^\n])*?\bhlc\b", re.I)
+# `key=` near the token `hlc`. That missed the case that mattered: once sql/0026
+# denormalised the stamp into `hlc_phys`/`hlc_logical` columns, a sort key over THOSE
+# carries no `hlc` token in the pattern's window, so the hand-rolled neighborhood
+# order -- the hottest ordering path in the system, and pointing the wrong way --
+# passed the lint that exists to make a second ordering rule impossible (#224 review
+# round 1, finding 3). The component names are now first-class.
+_PY_TEXT_SORT = re.compile(
+    r"\bkey\s*=(?:(?!hlc_sort_key|hlc_parts_sort_key)[^\n])*?"
+    r"\b(hlc|hlc_phys|hlc_logical|_hlc_phys|_hlc_logical)\b", re.I)
 _SCAN_SUFFIXES = (".py", ".sql", ".md")
 
 # Migrations that predate this lint. Applied files are historical — rewriting one to

@@ -17,7 +17,7 @@ import random
 
 import pytest
 
-from kawa.domain.ids import hlc_order_sql, hlc_sort_key
+from kawa.domain.ids import hlc_order_sql, hlc_parts_sort_key, hlc_sort_key
 
 psycopg = pytest.importorskip("psycopg")
 
@@ -226,3 +226,50 @@ def test_the_index_definition_matches_the_helper(cur) -> None:  # type: ignore[n
     assert norm(hlc_order_sql(unique="event_id")) in norm(row[0]), (
         f"the index no longer matches hlc_order_sql:\n  helper: "
         f"{hlc_order_sql(unique='event_id')}\n  index : {row[0]}")
+
+
+def test_parity_holds_for_the_denormalised_components_too(cur) -> None:  # type: ignore[no-untyped-def]
+    """The parity mechanism was validating a function production does not call.
+
+    `hlc_sort_key` takes a stamp string, and every caller of it is in this file. The
+    hot path -- neighborhood expansion -- reads `hlc_phys`/`hlc_logical` columns off
+    the link row (sql/0026) and orders by `hlc_parts_sort_key`, which nothing here
+    compared against SQL. So the guarantee "the two engines agree" covered the entry
+    point with no production callers and not the one with all of them.
+
+    This compares the ORDER BY the leaf query actually issues against the Python key
+    the expansion actually uses, over the same rows."""
+    # NO all-NULL row here, and that absence is the finding. SQL reads `hlc_phys DESC`
+    # NULLS FIRST (the index is built that way, and `NULLS LAST` would stop matching
+    # it and bring back the Sort #222 removed); `hlc_parts_sort_key` puts an absent
+    # endpoint LAST. The two engines genuinely disagree on that row -- so sql/0031
+    # makes the row impossible instead of arguing that no current writer creates it.
+    rows = [("a", 1, 2, "nodeA"), ("b", 1, 10, "nodeA"), ("c", 1, 9, "nodeB"),
+            ("d", 2, 1, "nodeA"), ("e", 0, 0, "nodeZ")]       # phys=0 is a HELD stamp
+    cur.execute("CREATE TEMP TABLE parts_probe "
+                "(ref text, hlc_phys bigint, hlc_logical bigint, origin_node text)")
+    cur.executemany("INSERT INTO parts_probe VALUES (%s,%s,%s,%s)", rows)
+
+    # verbatim the ordering the leaf query issues (kawa.retrieval._LEAF_SQL)
+    cur.execute('SELECT ref FROM parts_probe ORDER BY hlc_phys DESC, '
+                'hlc_logical DESC, origin_node COLLATE "C" DESC, ref COLLATE "C" DESC')
+    from_sql = [r[0] for r in cur.fetchall()]
+
+    from_python = [r[0] for r in sorted(
+        rows, key=lambda r: hlc_parts_sort_key(r[1], r[2], r[3] or "", r[0]), reverse=True)]
+
+    assert from_sql == from_python, (from_sql, from_python)
+    assert from_sql[-1] == "e"          # phys=0 is a real stamp, ordered as one
+
+
+def test_an_endpoint_cannot_have_a_scope_without_a_stamp(cur) -> None:  # type: ignore[no-untyped-def]
+    """sql/0031, which is what lets the parity above be a guarantee rather than an
+    argument about the current write paths."""
+    import psycopg
+    cur.execute("SAVEPOINT p")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        cur.execute("INSERT INTO event_links(source_ref, relation, target_ref, resolved,"
+                    " asserted_by_event_id, target_scope_ref, asserter_scope_ref,"
+                    " source_scope_ref) VALUES"
+                    " ('s','supports','t',true,'a','$public','$public','fleet')")
+    cur.execute("ROLLBACK TO p")

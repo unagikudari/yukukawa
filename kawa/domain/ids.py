@@ -110,6 +110,14 @@ def event_hash(
 # replicated, or rebuilt — not merely rejected at one entry point.
 RESERVED_SCOPE_PREFIX = "$"
 
+# The projection sentinel for `events.scope_ref IS NULL` -- an envelope-v1 event, which
+# predates scoping and is visible to everyone. Denormalised projections store it so the
+# authorization predicate stays plain equality and keeps seeking (sql/0026); readers
+# must therefore treat every viewer as holding it. Defined HERE, beside the ordering
+# rules, because a sentinel with two definitions is the same defect as an order with
+# two definitions -- and this plan has paid for that lesson six times.
+PUBLIC_SCOPE = f"{RESERVED_SCOPE_PREFIX}public"
+
 
 def scope_digest_of(scope_ref: str) -> str:
     """The pseudonymous per-scope marker committed by the v2 preimage (#113 rev 2 OQ3):
@@ -205,9 +213,34 @@ def hlc_order_sql(*, unique: str | tuple[str, ...] | None, hlc: str = "hlc",
     return ", ".join(parts)
 
 
-def hlc_sort_key(hlc: str, tiebreak: str,
-                 unique: str | None = None) -> tuple[int, int, str] | tuple[int, int, str, str]:
+def hlc_parts_sort_key(phys: int | None, logical: int | None, tiebreak: str,
+                       unique: str | tuple) -> tuple:
+    """The same order, for rows that already carry the parsed components as columns.
+
+    A denormalised projection stores `hlc_phys`/`hlc_logical` rather than the stamp
+    (sql/0026), so re-serialising them into a string just to parse it back would be a
+    round trip whose only purpose is to reach this function. Both entry points return
+    the SAME tuple shape, sorted with `reverse=True`, so there is still one ordering
+    rule -- which is the entire point of #214 step 1.
+
+    A NULL component means the endpoint is not held here yet. Those sort LAST under
+    the descending order, which is why the flag is 0 for absent and 1 for present:
+    `reverse=True` puts larger first. A held stamp can legitimately carry phys=0, so
+    absence is a separate leading component rather than a magic value inside phys."""
+    if phys is None:
+        return (0, 0, 0, "", unique)
+    return (1, phys, logical, tiebreak, unique)
+
+
+def hlc_sort_key(hlc: str, tiebreak: str, unique: str | None = None) -> tuple:
     """The Python counterpart of `hlc_order_sql`, for `sorted(..., reverse=desc)`.
+
+    DELEGATES to `hlc_parts_sort_key`. An earlier cut had the two computing the same
+    order by separate code, with a docstring claiming they returned the same shape --
+    which was false (this one had no presence flag, so the tuples differed in arity
+    and could not be mixed in one sort). Two functions asserting agreement is the
+    "one concept, two representations" defect, committed inside the module whose
+    purpose is to prevent it.
 
     A malformed stamp is a programming error here rather than a sort order:
     admissibility (#145) rejects it long before anything can order by it, and
@@ -215,9 +248,8 @@ def hlc_sort_key(hlc: str, tiebreak: str,
     parsed = parse_hlc(hlc)
     if parsed is None:
         raise ValueError(f"cannot order by a malformed HLC: {hlc!r}")
-    if unique is None:
-        return parsed[0], parsed[1], tiebreak
-    return parsed[0], parsed[1], tiebreak, unique
+    key = hlc_parts_sort_key(parsed[0], parsed[1], tiebreak, unique or "")
+    return key[:4] if unique is None else key
 
 
 @dataclass

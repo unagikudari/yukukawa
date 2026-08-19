@@ -50,7 +50,7 @@ from typing import Protocol, Sequence
 
 import psycopg
 
-from kawa.domain.ids import hlc_sort_key
+from kawa.domain.ids import PUBLIC_SCOPE, hlc_parts_sort_key, hlc_sort_key
 
 # Lock 2: priority GROUPS. supports+contradicts share one group with fair-share budgeting;
 # a fixed supports-first order would turn a row cap into confirmation bias.
@@ -64,6 +64,187 @@ _RELATION_GROUPS: list[tuple[str, ...]] = [
 _GROUP_OF = {r: i for i, group in enumerate(_RELATION_GROUPS) for r in group}
 
 _PATH_EDGE_BUDGET = 8      # compact path summaries: beyond this, deterministic truncation
+
+# --- bounded candidate expansion (#212 / #214 step 4 / #222) --------------------
+#
+# Edge visibility is an AND over two independent scopes (#146 F4). Expressing it as a
+# FILTER lets rows the viewer cannot see consume the candidate window and push visible
+# ones out — which #222's review showed is not a completeness gap but shadow
+# censorship: an attacker emits edges toward a public node from an isolated scope, an
+# ordinary viewer's window fills with them, the filter drops them all, and the viewer
+# sees nothing. No privilege escalation, nothing forged.
+#
+# So every leaf NAMES both scopes. A pair the viewer does not hold is never walked and
+# there is no window for an invisible row to consume. `sql/0027` and `sql/0028` are the
+# indexes these seek on; `tests/test_expansion_cost.py` asserts through EXPLAIN that
+# both scopes stay index CONDITIONS and neither becomes a Filter.
+#
+# One leaf per (scope pair, direction) — not per relation. The ranking puts relation
+# priority ahead of the HLC, and the first cut satisfied that by partitioning on
+# relation, which is correct and does not scale (11 x 2 x |V|^2 leaves: 243 ms of pure
+# planning per node at |V|=8). The requirement was never "partition eleven ways" but
+# "relation priority precedes hlc in the traversal order", and `relation_rank` carries
+# that into the index instead. Containment is unchanged in form: inside a pair leaf the
+# ordering IS the global ranking restricted to that pair, so a row excluded from the
+# leaf's top-K has K rows of that pair ahead of it globally and cannot be a global
+# winner. What matters is that the order inside a partition agrees with the global
+# order, never the number of partitions.
+#
+# DECLARED DEFAULTS, not measurements — step 4's adversarial fixtures are where these
+# get validated. Writing a number here and calling it derived is the failure this repo
+# already has a rule about.
+MAX_VIEWER_SCOPES = 8      # a wider viewer is served partially and told so
+LEAF_BUDGET = 128          # leaves emitted per expanded node
+CANDIDATE_PER_NODE = 20    # rows examined per pair leaf
+
+
+def scope_pairs(viewer_scopes: frozenset[str]) -> tuple[tuple[tuple[str, str], ...], int]:
+    """The (endpoint_scope, asserter_scope) pairs a viewer may see, and how many the
+    budgets dropped.
+
+    Chosen HERE rather than by a database `ORDER BY`: selecting them in SQL would put
+    the choice back under collation, which is the two-engines divergence the ordering
+    parity mechanism exists to catch, arriving through the pruning path instead of the
+    ranking path (#214 round 7).
+
+    Same-scope pairs come first — they are the overwhelming majority of real edges, so
+    a budget that binds should spend itself on them before cross-scope combinations.
+    Within each group the order is ascending, so two identical requests consult
+    identical pairs and produce byte-identical Bundles.
+
+    A viewer wider than `MAX_VIEWER_SCOPES` is served on its first scopes and told how
+    many pairs were dropped. It is NOT refused — refusing a legitimately broad viewer
+    is also an authorization decision, and a declared partial answer beats no answer
+    (#214 rev 6) — and NOT silently truncated: the count compares against what the
+    viewer's FULL scope set implies, so dropping whole scopes cannot hide inside a
+    report about dropped pairs."""
+    # `$public` is the projection's sentinel for `events.scope_ref IS NULL` -- the
+    # envelope-v1 carve-out that `_IN_SCOPE` spells as `IS NULL OR = ANY(...)`. The
+    # sentinel exists so the predicate stays plain equality and keeps seeking (0026),
+    # and equality only works if every viewer is understood to hold it. Leaving it out
+    # made unscoped events invisible to everyone rather than visible to everyone --
+    # the carve-out inverted, and silently, because "no rows" is what a correctly
+    # restrictive filter also returns.
+    every = sorted(set(viewer_scopes) | {PUBLIC_SCOPE})
+    consulted = every[:MAX_VIEWER_SCOPES]
+
+    def pairs_of(scopes: list[str]) -> list[tuple[str, str]]:
+        return [(s, s) for s in scopes] + [(a, b) for a in scopes for b in scopes if a != b]
+
+    kept = pairs_of(consulted)[:LEAF_BUDGET // 2]      # two directions per pair
+    return tuple(kept), len(pairs_of(every)) - len(kept)
+
+
+# The ordering and the authorization both read the endpoint being STEPPED TO, never
+# the one already stood on (sql/0030). `{o}` names that endpoint's column prefix.
+_LEAF_SQL = (
+    "(SELECT relation, {other} AS other, %s AS dir, %s AS leaf, "
+    "        {o}_hlc_phys, {o}_hlc_logical, {o}_origin_node FROM event_links "
+    " WHERE {key} = %s AND resolved AND {o}_scope_ref = %s AND asserter_scope_ref = %s{rel} "
+    " ORDER BY relation_rank, {o}_hlc_phys DESC, {o}_hlc_logical DESC, "
+    '          {o}_origin_node COLLATE "C" DESC, {other} COLLATE "C" DESC LIMIT %s)'
+)
+
+def _worst(saturating: list[tuple[int, str]]) -> tuple[int, str]:
+    """Most saturated leaves, ties broken by ref ASC.
+
+    An earlier cut inverted the ref with `tuple(-ord(c) for c in ref)` and took the
+    max. That is wrong for refs where one is a PREFIX of the other: comparing
+    `("node")` against `("node_1")` runs out of elements while still tied, and the
+    SHORTER tuple compares smaller, so max() returned the longer ref -- the opposite
+    of ref ASC (#224 review round 1, finding 2). Two comparisons say it directly and
+    have no inversion to get backwards."""
+    most = max(n for n, _ in saturating)
+    return most, min(ref for n, ref in saturating if n == most)
+
+
+FAIR_SHARE = ("contradicts", "supports")   # Lock 2: one budget group, ranks 1 and 2
+
+
+_DIRECTIONS = (("out", "source_ref", "target_ref", "target"),
+               ("in", "target_ref", "source_ref", "source"))
+
+
+def _leaf_plan(pairs: tuple[tuple[str, str], ...]) -> list[tuple]:
+    """Every (direction, pair). Directions outermost, pairs innermost — the leaf index
+    is a position in THIS list, so `_one_leaf` can decompose it back."""
+    return [(d, p) for d in _DIRECTIONS for p in pairs]
+
+
+def _leaves(cur, node: str, plan: list[tuple], per_node: int,
+            relation: str | None = None) -> list[tuple]:
+    """One bounded seek per (scope pair, direction), UNION ALL-ed.
+
+    Never `scope_ref IN (...) AND asserter_scope_ref IN (...)` in a single query:
+    Postgres answers that with a Bitmap scan and the LIMIT stops short-circuiting,
+    which is the measurement that started #222."""
+    sql, params, leaf = [], [], 0
+    for (direction, key, other, o), (endpoint_scope, asserter_scope) in plan:
+            sql.append(_LEAF_SQL.format(key=key, other=other, o=o,
+                                        rel=" AND relation = %s" if relation else ""))
+            params += [direction, leaf, node, endpoint_scope, asserter_scope]
+            if relation:
+                params.append(relation)
+            params.append(per_node)
+            leaf += 1
+    if not sql:
+        return []
+    cur.execute(" UNION ALL ".join(sql), params)
+    return cur.fetchall()
+
+
+def candidate_edges(cur, node: str, pairs: tuple[tuple[str, str], ...],
+                    per_node: int) -> tuple[list[tuple], int]:
+    """Candidate edges at one node, and how many leaves the cap saturated.
+
+    `relation_rank` orders each leaf by relation priority before hlc, so a leaf that
+    stops at `per_node` has dropped only lower-priority relations. That is the right
+    thing to drop -- except across the ONE boundary where priority order is not the
+    governing rule:
+
+        Lock 2 gives `supports` and `contradicts` a single budget, so a cap must
+        never keep supporting evidence while silently dropping contradiction.
+
+    They occupy adjacent ranks, so a saturating leaf CAN return twenty of one and
+    none of the other -- the fairness violation, arriving through the mechanism that
+    fixed the fan-out. When a leaf saturates and a fair-share relation is missing
+    from what came back, that relation gets its own bounded seek. The extra leaves
+    are issued only when the cap actually bit, so the common case (a node whose
+    visible degree fits) pays for exactly the leaves it needs.
+
+    The saturated-leaf count is what gets reported, NOT a count of discarded edges:
+    counting those exactly means scanning the edges the cap exists to avoid reading,
+    so an exact figure would be bought at the price of the bound it describes."""
+    rows = _leaves(cur, node, _leaf_plan(pairs), per_node)
+    counts: dict[int, int] = {}
+    present: dict[int, set[str]] = {}
+    for row in rows:
+        counts[row[3]] = counts.get(row[3], 0) + 1
+        present.setdefault(row[3], set()).add(row[0])
+    saturated = [leaf for leaf, n in counts.items() if n >= per_node]
+
+    # Fair share is a property of EACH leaf, not of the node. Checking presence across
+    # all leaves at once let one scope pair vouch for another: a leaf holding fifty
+    # contradictions and fifty supports saturates on contradictions alone and drops
+    # every support, and a single support edge under some UNRELATED scope pair made
+    # the aggregate check see `supports` and skip the top-up (#224 review round 1,
+    # finding 1). The starved leaf is the one that has to be topped up.
+    #
+    # Grouped by relation, so a node where every leaf starves costs TWO statements
+    # rather than two per leaf — 256 sequential round trips at the worst node, which
+    # is the fan-out this whole plan removed, re-entering through its own remedy
+    # (#224 review round 2, finding 2).
+    plan = _leaf_plan(pairs)
+    starved: dict[str, list[int]] = {}
+    for leaf in sorted(saturated):
+        for relation in FAIR_SHARE:
+            if relation not in present[leaf]:
+                starved.setdefault(relation, []).append(leaf)
+    for relation, leaves in sorted(starved.items()):
+        rows += _leaves(cur, node, [plan[leaf] for leaf in leaves], per_node,
+                        relation=relation)
+    return rows, len(saturated)
+
 
 # #146: the harness grant — fleet only. Exported for callers that legitimately answer
 # under fleet visibility (CLI/console/eval harnesses); production surfaces resolve
@@ -191,6 +372,25 @@ class FrontierEntry:
     reason: str                            # depth_limit|row_cap|cycle (traversal) — unresolved is separate
 
 
+@dataclass(frozen=True)
+class CandidateTruncation:
+    """What expansion did not look at, said out loud.
+
+    A bounded traversal that stays silent about its bound reads as a complete
+    answer, which is the failure mode #212 was: the caller cannot tell "this node
+    has three neighbours" from "this node has thirty thousand and we read twenty".
+
+    `nodes` and `worst_node` are IN-SCOPE nodes only. Naming a node whose edges the
+    viewer may not see would disclose the restricted ref through the honesty
+    channel -- the same mistake the traversal frontier avoids by omitting
+    out-of-scope endpoints rather than listing them as skipped."""
+    nodes: int                    # in-scope nodes where at least one leaf saturated
+    worst_node: str               # the one that saturated most leaves (ties: ref asc)
+    worst_leaves: int
+    per_node: int                 # the cap that bit, so the report is interpretable
+    scope_pairs_dropped: int = 0  # viewer wider than MAX_VIEWER_SCOPES (0 = served whole)
+
+
 @dataclass
 class Bundle:
     plan: RetrievalPlan
@@ -203,6 +403,7 @@ class Bundle:
     vector_frontier: list[str] = field(default_factory=list)            # index lag / model, stated (§10.3)
     viewer_scopes: tuple[str, ...] = ()                                 # #146: the scope answered under
     scope_withheld: dict[str, int] = field(default_factory=dict)        # class_id -> count (no refs)
+    candidate_truncation: CandidateTruncation | None = None             # #214 step 4, stated not hidden
     orientation: list[str] = field(default_factory=list)                # #156: stated orientation facts
     #   (derived domains / UNMAPPED frontier / index source+commit / dirty docs /
     #    precedent source boundary) — honesty statements, never candidate content
@@ -638,61 +839,77 @@ def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryC
         for s, r, t in cur.fetchall():
             bundle.unresolved_frontier.append(FrontierEntry(source_node=s, relation=r,
                                                             next_ref=t, reason="unresolved"))
-        # #146 F4: same edge rule as evidence — endpoint AND asserting link event
-        # must both be in scope for the edge to be expanded or even counted visible.
-        _edge_in = f"{_IN_SCOPE.format(a='e')} AND {_IN_SCOPE.format(a='le')}"
+        # #146 F4: an edge is disclosed only when BOTH the endpoint event AND the
+        # asserting link event are in scope. Both scopes now live ON the link row
+        # (sql/0026), so that rule is two equality keys in an index rather than two
+        # joins with a residual filter — which is what makes the traversal bounded:
+        # a filtered join reads invisible rows to discard them, and those reads are
+        # the window a low-privilege actor floods to erase a high-privilege viewer's
+        # sight of the public graph (#222 round 1).
+        pairs, pairs_dropped = scope_pairs(viewer_scopes)
+        saturating: list[tuple[int, str]] = []
         while frontier_q:
             node, depth, path = frontier_q.pop(0)
             # The ordering components come back WITH the edge (#214 step 4). They live
             # on the link row now, so ranking needs no second query per edge — see the
             # note on `hlc_key` below for what that replaced.
+            edges, saturated = candidate_edges(cur, node, pairs, CANDIDATE_PER_NODE)
+            if saturated:
+                saturating.append((saturated, node))
+            # withheld: everything resolved at this node that the viewer may not see.
+            # No joins — the scopes are on the row, so this is a count over the node's
+            # own edges rather than over the graph.
             cur.execute(
-                "SELECT l.relation, l.target_ref AS other, 'out' AS dir, "
-                "       l.hlc_phys, l.hlc_logical, l.origin_node FROM event_links l "
-                "JOIN events e ON e.event_id=l.target_ref "
-                "JOIN events le ON le.event_id=l.asserted_by_event_id "
-                f"WHERE l.resolved AND l.source_ref=%s AND {_edge_in} "
-                "UNION ALL "
-                "SELECT l.relation, l.source_ref AS other, 'in' AS dir, "
-                "       l.hlc_phys, l.hlc_logical, l.origin_node FROM event_links l "
-                "JOIN events e ON e.event_id=l.source_ref "
-                "JOIN events le ON le.event_id=l.asserted_by_event_id "
-                f"WHERE l.resolved AND l.target_ref=%s AND {_edge_in}",
-                (node, scopes, scopes, node, scopes, scopes))
-            edges = cur.fetchall()
-            cur.execute(
-                "SELECT count(*) FROM ("
-                "  SELECT l.target_ref AS other FROM event_links l "
-                "  JOIN events e ON e.event_id=l.target_ref "
-                "  JOIN events le ON le.event_id=l.asserted_by_event_id "
-                f"  WHERE l.resolved AND l.source_ref=%s AND NOT ({_edge_in}) "
-                "  UNION ALL "
-                "  SELECT l.source_ref FROM event_links l "
-                "  JOIN events e ON e.event_id=l.source_ref "
-                "  JOIN events le ON le.event_id=l.asserted_by_event_id "
-                f"  WHERE l.resolved AND l.target_ref=%s AND NOT ({_edge_in})"
-                ") withheld", (node, scopes, scopes, node, scopes, scopes))
+                "SELECT count(*) FROM event_links WHERE resolved AND (source_ref=%s OR target_ref=%s)"
+                " AND NOT ((CASE WHEN source_ref=%s THEN target_scope_ref"
+                "                ELSE source_scope_ref END) = ANY(%s)"
+                "          AND asserter_scope_ref = ANY(%s))",
+                (node, node, node, scopes, scopes))
+            # A NULL source scope makes the predicate UNKNOWN and the row uncounted,
+            # which is the honest answer: an edge whose far endpoint this node does
+            # not hold is not being WITHHELD from the viewer, it is absent from the
+            # log. Counting it would report a restricted neighbour that may not exist.
             _withhold(bundle, qc, cur.fetchone()[0])
-            # deterministic expansion order (round-2 lock): group, then interleave the
-            # fair-share group by alternation, then target hlc/ref
+            # The leaf index did its job during saturation counting and is not part of
+            # an edge's identity — two viewer scope pairs can both disclose the same
+            # edge. Project it out, then dedup, then sort a TOTAL order.
+            #
+            # `list(set(...))` plus two stable sorts was not enough: an in-edge and an
+            # out-edge between the same two nodes tie on relation, phys, logical,
+            # origin_node and `other`, differing only in `dir` — which appeared in
+            # neither sort key. Stable sorting preserved their `set` iteration order,
+            # and that order varies with the process hash seed, so two replicas holding
+            # identical events produced different `Record.path` strings (#224 review
+            # round 2, finding 1). A Bundle that differs run to run cannot be cited.
+            #
+            # The real error was upstream of the sort: `other` was passed as the unique
+            # key, and `other` is not unique. The unique key of a traversal candidate is
+            # (other, direction).
+            edges = sorted({(rel, other, direction, phys, logical, node_id)
+                            for rel, other, direction, _leaf, phys, logical, node_id in edges})
+            # Expansion order (round-2 lock): relation group, the fair-share group
+            # interleaved by alternation, then the causal order.
+            #
+            # ONE ordering rule (#214 step 1), reached through the components the
+            # row already carries rather than re-serialising them into a stamp.
+            #
+            # This used to hand-roll `(0, phys, logical, node_id, other)` and sort
+            # ASCENDING, while the canonical order — and the leaf SQL that now does
+            # the truncating — is DESCENDING. Self-consistent while nothing was
+            # truncated; incoherent the moment a cap bit, because the leaf kept the
+            # NEWEST rows and expansion then walked the OLDEST of them first. The
+            # hlc lint could not catch it: its pattern looks for the token `hlc` near
+            # a `key=`, and the components are named `phys`/`logical` here (#224
+            # review round 1, finding 3). A test pins it instead of a regex.
+            #
+            # Two stable passes rather than one key, so nothing has to be negated to
+            # make it descend — negating a text tie-break is exactly the inversion
+            # bug that finding 2 was.
             def edge_key(edge: tuple) -> tuple:
-                """The Python half of the one causal order (#214 step 1), now read
-                from the edge row itself.
-
-                This used to open a cursor and run `SELECT hlc, origin_node FROM
-                events WHERE event_id = %s` inside the sort key. `list.sort` calls
-                the key once per element, so that was exactly one round trip per
-                edge, issued BEFORE the row cap was consulted — measured linear at
-                10/100/1000/10000 edges. A node with 100k visible edges paid 100k
-                round trips to return five rows.
-
-                Unresolved endpoints sort last: their ordering columns are still
-                NULL, because the endpoint is not held here yet."""
-                _relation, other, _dir, phys, logical, node_id = edge
-                if phys is None:
-                    return (1, 0, 0, "", other)
-                return (0, phys, logical, node_id, other)
-            edges.sort(key=lambda e: (_GROUP_OF.get(e[0], 99), e[0], edge_key(e), e[1]))
+                _relation, other, direction, phys, logical, node_id = edge
+                return hlc_parts_sort_key(phys, logical, node_id or "", (other, direction))
+            edges.sort(key=edge_key, reverse=True)                       # least significant
+            edges.sort(key=lambda e: (_GROUP_OF.get(e[0], 99), e[0]))    # most significant
             # alternate supports/contradicts inside the fair-share group
             fair = [e for e in edges if e[0] in ("supports", "contradicts")]
             sup = [e for e in fair if e[0] == "supports"]
@@ -724,6 +941,15 @@ def _exec_neighborhood(conn: psycopg.Connection, plan: RetrievalPlan, qc: QueryC
                                   path=new_path if not truncated else f"{root} …(+{depth + 1} edges) {other[:16]}…",
                                   path_truncated=truncated, standing=_standing_of(cur, other)))
                 frontier_q.append((other, depth + 1, new_path))
+
+    if saturating or pairs_dropped:
+        # tie-break on the ref so two identical requests name the same node — the
+        # report is part of the Bundle, and a Bundle that differs run to run cannot
+        # be cited. Every node here was expanded, so every node here is in scope.
+        worst_leaves, worst_node = _worst(saturating) if saturating else (0, "")
+        bundle.candidate_truncation = CandidateTruncation(
+            nodes=len(saturating), worst_node=worst_node, worst_leaves=worst_leaves,
+            per_node=CANDIDATE_PER_NODE, scope_pairs_dropped=pairs_dropped)
     return out
 
 

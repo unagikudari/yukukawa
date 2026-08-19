@@ -118,12 +118,16 @@ def test_a_populated_column_can_never_be_rewritten(conn) -> None:  # type: ignor
     conn.commit()
 
     with conn.cursor() as cur, pytest.raises(psycopg.errors.RaiseException):
-        cur.execute("UPDATE event_links SET scope_ref='other' WHERE source_ref='s1'")
+        cur.execute("UPDATE event_links SET target_scope_ref='other' WHERE source_ref='s1'")
     conn.rollback()
 
-    with conn.cursor() as cur:                       # and a still-NULL column may fill
-        cur.execute("UPDATE event_links SET hlc_logical = 7 "
-                    "WHERE source_ref='s1' AND hlc_logical IS NULL")
+    with conn.cursor() as cur:                       # and still-NULL columns may fill
+        # As ONE fact: sql/0031 couples an endpoint's stamp components, so filling
+        # `hlc_logical` alone is now a CheckViolation rather than a permitted partial
+        # write. The guard allows the fill; the constraint decides what a fill IS.
+        cur.execute("UPDATE event_links SET target_hlc_phys = 1, target_hlc_logical = 7, "
+                    "  target_origin_node = 'n' "
+                    "WHERE source_ref='s1' AND target_hlc_phys IS NULL")
         assert cur.rowcount == 1
     conn.rollback()
 
@@ -167,12 +171,25 @@ def test_every_column_is_classified_as_assertion_or_derived(conn) -> None:  # ty
         "resolved",          # local: does this node hold the endpoint yet (#215)
         # #214 step 4 denormalises these onto the row during the same
         # transition; they are derived from the endpoint event, not asserted.
-        "scope_ref", "asserter_scope_ref", "hlc_phys", "hlc_logical", "origin_node",
+        "asserter_scope_ref",
+        "target_scope_ref", "target_hlc_phys", "target_hlc_logical", "target_origin_node",
+        # nullable on purpose: a link may be asserted before its source arrives, and a
+        # NULL scope matches no equality predicate, so no in-leaf can step to an event
+        # this node does not hold (sql/0030)
+        "source_scope_ref", "source_hlc_phys", "source_hlc_logical", "source_origin_node",
     }
     with conn.cursor() as cur:
         cur.execute("SELECT column_name FROM information_schema.columns "
                     "WHERE table_name='event_links'")
         columns = {r[0] for r in cur.fetchall()}
+        # The third class, and the only one not declared here: a GENERATED column is
+        # unwritable by any statement, so Postgres already enforces immutability more
+        # strongly than the guard could. It is read from the catalog rather than named,
+        # so this stays honest -- a column claimed generated but not actually generated
+        # is not silently excused (sql/0029).
+        cur.execute("SELECT attname FROM pg_attribute WHERE attrelid='event_links'::regclass"
+                    " AND attgenerated <> ''")
+        columns -= {r[0] for r in cur.fetchall()}
         cur.execute("SELECT prosrc FROM pg_proc WHERE proname='kawa_link_resolution_guard'")
         src = cur.fetchone()[0]
 
@@ -180,3 +197,23 @@ def test_every_column_is_classified_as_assertion_or_derived(conn) -> None:  # ty
     assert not unclassified, (
         f"event_links columns neither guarded nor declared derived: {sorted(unclassified)}. "
         "Add them to the guard's immutability check, or to DERIVED here with a reason.")
+
+
+def test_a_generated_column_is_unwritable_rather_than_merely_guarded(conn) -> None:  # type: ignore[no-untyped-def]
+    """sql/0029 excuses generated columns from the guard on the grounds that the
+    database enforces them more strongly. That is only sound if the stronger
+    guarantee is real, so it is asserted rather than assumed -- both that a write
+    is refused outright, and that the value the database computes is the one the
+    ordering depends on."""
+    with conn.cursor() as cur:
+        _pending(cur)
+        with pytest.raises(psycopg.errors.GeneratedAlways):
+            cur.execute("UPDATE event_links SET relation_rank = 0 WHERE source_ref='s1'")
+    conn.rollback()
+
+    with conn.cursor() as cur:
+        _pending(cur)                                     # relation 'supports'
+        cur.execute("SELECT relation, relation_rank FROM event_links WHERE source_ref='s1'")
+        relation, rank = cur.fetchone()
+        assert (relation, rank) == ("supports", 2)        # the frozen Lock 2 band
+    conn.rollback()
