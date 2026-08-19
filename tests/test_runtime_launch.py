@@ -25,6 +25,8 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
 
 import runtime_launch as rl  # noqa: E402
+from kawa.runtime.handles import locked  # noqa: E402
+from kawa.runtime.registry import NoBackendAvailable  # noqa: E402
 
 _TABLES = ("content_embedding, event_content, events, event_links, event_link, "
            "event_observation, event_claim, event_plan, event_work, "
@@ -133,7 +135,7 @@ def _work(conn, work_ref="w-x", execution="ready"):  # type: ignore[no-untyped-d
 def test_total_bytes_reaching_the_runtime_are_exactly_the_cue(conn):  # type: ignore[no-untyped-def]
     _work(conn)
     backend = FakeBackend()
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert backend.transmitted == [WAKE_CUE]        # not "contains", not "starts with"
     assert "".join(backend.transmitted) == WAKE_CUE
 
@@ -165,7 +167,7 @@ def test_non_actionable_work_is_refused(conn, execution):  # type: ignore[no-unt
     _work(conn, execution=execution)
     backend = FakeBackend()
     with pytest.raises(rl.Refused, match="not actionable"):
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert backend.launched == []
 
 
@@ -179,39 +181,40 @@ def test_unknown_work_is_refused(conn):  # type: ignore[no-untyped-def]
 def test_second_launch_for_the_same_work_is_refused(conn):  # type: ignore[no-untyped-def]
     _work(conn)
     backend = FakeBackend()
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     with pytest.raises(rl.Refused, match="already running"):
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert backend.launched == ["w-x"]              # exactly one runtime
 
 
 def test_stale_entry_does_not_block_a_relaunch(conn):  # type: ignore[no-untyped-def]
     _work(conn)
     backend = FakeBackend()
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     backend._present = False                        # the runtime died meanwhile
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert backend.launched == ["w-x", "w-x"]
 
 
 def test_unknown_liveness_refuses_rather_than_guessing(conn):  # type: ignore[no-untyped-def]
     _work(conn)
     backend = FakeBackend()
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
 
     def blind(handle):
         raise RuntimeBackendError("fake", "inspect_failed")
     backend.inspect = blind
     with pytest.raises(rl.Refused, match="liveness unknown"):
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert backend.launched == ["w-x"]               # no second runtime on a guess
 
 
 def test_force_replaces_the_recorded_runtime(conn):  # type: ignore[no-untyped-def]
     _work(conn)
     backend = FakeBackend()
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", force=True)
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", force=True,
+              loader=lambda *_: backend)
     assert backend.terminated == ["tok-w-x"]         # the old one was torn down first
     assert backend.launched == ["w-x", "w-x"]
 
@@ -222,7 +225,7 @@ def test_blocked_at_launch_tears_down_and_deregisters(conn):  # type: ignore[no-
     _work(conn)
     backend = FakeBackend(settle="blocked")
     with pytest.raises(RuntimeBackendError) as excinfo:
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert excinfo.value.error_class == "blocked_at_launch"
     assert backend.terminated == ["tok-w-x"]         # nothing left to absorb the next cue
     assert backend.transmitted == []                 # and the cue was never sent
@@ -236,7 +239,7 @@ def test_permanently_swallowed_cue_is_named_and_cleaned_up(conn):  # type: ignor
     _work(conn)
     backend = FakeBackend(echo=False)
     with pytest.raises(RuntimeBackendError) as excinfo:
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert excinfo.value.error_class == "wake_echo_missing"
     assert len(backend.transmitted) > 1                  # it did retry
     assert set(backend.transmitted) == {WAKE_CUE}        # and only ever the constant
@@ -249,7 +252,7 @@ def test_cue_swallowed_during_boot_lands_on_a_retry(conn):  # type: ignore[no-un
     # submission and drops it. The second attempt lands.
     _work(conn)
     backend = FakeBackend(echo=1)
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert backend.transmitted == [WAKE_CUE, WAKE_CUE]   # retried, never rephrased
     assert backend.terminated == []                      # and the runtime survives
 
@@ -258,7 +261,7 @@ def test_blocked_after_the_cue_is_reported(conn):  # type: ignore[no-untyped-def
     _work(conn)
     backend = FakeBackend(after_cue="blocked")
     with pytest.raises(RuntimeBackendError) as excinfo:
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert excinfo.value.error_class == "blocked_at_launch"
 
 
@@ -277,7 +280,7 @@ def test_echo_rendered_late_is_not_missed_by_the_next_attempt(conn):  # type: ig
             backend.screen += "\n> " + "\n  ".join(cue.split(" ", 4))
     backend.wake = late_wake
 
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert len(backend.transmitted) <= 2            # noticed, not retried to death
     assert backend.terminated == []
 
@@ -293,7 +296,7 @@ def test_colourised_echo_still_counts_as_delivered(conn):  # type: ignore[no-unt
         backend._woken = True
         backend.screen += "\n\x1b[1;32m> " + "\x1b[0m\n  ".join(cue.split(" ", 4)) + "\x1b[0m"
     backend.wake = coloured
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert backend.transmitted == [WAKE_CUE]
     assert "\x1b[" in backend.screen                # the escapes really were there
 
@@ -314,7 +317,7 @@ def test_wrapped_echo_still_counts_as_delivered(conn):  # type: ignore[no-untype
     # the fake re-flows the cue across rows exactly as a narrow pane does
     _work(conn)
     backend = FakeBackend()
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     assert "\n" in backend.screen and WAKE_CUE not in backend.screen  # never verbatim
     assert backend.transmitted == [WAKE_CUE]
 
@@ -327,7 +330,7 @@ def test_status_file_is_display_only_and_writes_nothing_to_kawa(conn, tmp_path):
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM events")
         before = cur.fetchone()[0]
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM events")
         assert cur.fetchone()[0] == before          # the launcher records NOTHING
@@ -345,9 +348,11 @@ def test_status_file_is_display_only_and_writes_nothing_to_kawa(conn, tmp_path):
 def test_terminate_removes_the_entry(conn):  # type: ignore[no-untyped-def]
     _work(conn)
     backend = FakeBackend()
-    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
-    assert rl.terminate(backend, "w-x") is True
-    assert rl.terminate(backend, "w-x") is False    # idempotent
+    rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
+    # the recorded entry names the backend; `loader` is how a test supplies it
+    # without registering an adapter (#225 review round 1, finding 1)
+    assert rl.terminate("w-x", "s", loader=lambda *_: backend) == "terminated"
+    assert rl.terminate("w-x", "s", loader=lambda *_: backend) == "no_runtime"  # idempotent
     assert backend.terminated == ["tok-w-x"]
 
 
@@ -361,7 +366,7 @@ def test_failed_teardown_retains_the_handle_and_says_so(conn, capsys):  # type: 
     _work(conn)
     backend = FakeBackend(settle="blocked", terminate_fails=True)
     with pytest.raises(RuntimeBackendError) as excinfo:
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
 
     assert excinfo.value.error_class == "blocked_at_launch"      # original failure leads
     assert "cleanup_incomplete" in capsys.readouterr().err       # and is not the only news
@@ -380,7 +385,7 @@ def test_a_retained_handle_still_refuses_the_next_launch(conn):  # type: ignore[
 
     fresh = FakeBackend()                        # the runtime is in fact still there
     with pytest.raises(rl.Refused) as excinfo:
-        rl.launch(fresh, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(fresh, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: fresh)
     assert "already running" in str(excinfo.value)
     assert fresh.launched == []                  # no second runtime
 
@@ -390,7 +395,7 @@ def test_unanswerable_liveness_after_failed_teardown_also_retains(conn):  # type
     _work(conn)
     backend = FakeBackend(settle="blocked", terminate_fails=True, inspect_fails=True)
     with pytest.raises(RuntimeBackendError):
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     from kawa.runtime.handles import locked
     with locked() as cache:
         assert cache.get("w-x") is not None
@@ -402,7 +407,7 @@ def test_failed_teardown_confirmed_absent_does_drop(conn):  # type: ignore[no-un
     backend = FakeBackend(settle="blocked", terminate_fails=True,
                           present_after_launch=False)
     with pytest.raises(RuntimeBackendError):
-        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp")
+        rl.launch(backend, conn, "w-x", agent_kind="codex", cwd="/tmp", loader=lambda *_: backend)
     from kawa.runtime.handles import locked
     with locked() as cache:
         assert cache.get("w-x") is None          # absence PROVEN, so forgetting is allowed
@@ -415,7 +420,8 @@ def test_force_will_not_replace_an_unproven_runtime(conn, capsys):  # type: igno
 
     stubborn = FakeBackend(terminate_fails=True)
     with pytest.raises(rl.Refused) as excinfo:
-        rl.launch(stubborn, conn, "w-x", agent_kind="codex", cwd="/tmp", force=True)
+        rl.launch(stubborn, conn, "w-x", agent_kind="codex", cwd="/tmp", force=True,
+                  loader=lambda *_: stubborn)
 
     assert "cleanup_incomplete" in str(excinfo.value)
     assert stubborn.launched == []                       # NO replacement runtime
@@ -431,10 +437,199 @@ def test_operator_terminate_keeps_the_entry_when_unproven(conn, capsys):  # type
     _work(conn)
     rl.launch(FakeBackend(), conn, "w-x", agent_kind="codex", cwd="/tmp")
 
-    assert rl.terminate(FakeBackend(terminate_fails=True), "w-x") is False
+    assert rl.terminate("w-x", "s",
+                        loader=lambda *_: FakeBackend(terminate_fails=True)) == "cleanup_incomplete"
     assert "cleanup_incomplete" in capsys.readouterr().err
     from kawa.runtime.handles import locked
     with locked() as cache:
         assert cache.get("w-x") is not None
 
-    assert rl.terminate(FakeBackend(), "w-x") is True    # and it is still terminable
+    assert rl.terminate("w-x", "s", loader=lambda *_: FakeBackend()) == "terminated"  # still terminable
+
+
+# ---- teardown belongs to the runtime that exists, not to this invocation's flag ----
+
+def test_terminate_uses_the_recorded_backend_not_the_requested_one(conn) -> None:  # type: ignore[no-untyped-def]
+    """A runtime is torn down by the thing that created it.
+
+    Resolving `--backend` first and using that for teardown would hand a handle token
+    minted by one backend to a different one, which cannot address it: the teardown
+    fails, and the real runtime stays alive while the operator is told nothing useful
+    (#225 review round 1, finding 1)."""
+    from kawa.runtime.handles import locked
+
+    creator, bystander = FakeBackend(), FakeBackend()
+    with locked() as cache:
+        cache.put("w-x", backend="creator", token="tok-1",
+                  started_at="2026-08-19T00:00:00+00:00")
+
+    asked: list[str] = []
+
+    def _loader(name, session):
+        asked.append(name)
+        return {"creator": creator, "bystander": bystander}[name]
+
+    assert rl.terminate("w-x", "s", loader=_loader) == "terminated"
+    assert asked == ["creator"], asked
+    assert creator.terminated == ["tok-1"]
+    assert bystander.terminated == []
+
+
+def test_terminate_keeps_the_handle_when_the_recorded_backend_is_unreachable(conn, capsys) -> None:  # type: ignore[no-untyped-def]
+    """#210 arriving from the other side.
+
+    A Work launched under a backend whose server later stops must still be
+    ADDRESSABLE. Refusing at selection — before teardown was ever reached — left the
+    handle recorded and unreachable, which is the state that ends in one Work with two
+    live runtimes. The handle is retained deliberately: an unreachable backend is
+    exactly when forgetting a runtime is most dangerous."""
+    from kawa.runtime.contract import BackendStatus
+    from kawa.runtime.handles import locked
+
+    with locked() as cache:
+        cache.put("w-x", backend="gone", token="tok-1",
+                  started_at="2026-08-19T00:00:00+00:00")
+
+    def _unreachable(name, session):
+        raise NoBackendAvailable(((name, BackendStatus(available=False,
+                                                       reason="server_absent")),))
+
+    assert rl.terminate("w-x", "s", loader=_unreachable) == "cleanup_incomplete"
+    assert "cleanup_incomplete" in capsys.readouterr().err
+    with locked() as cache:
+        assert cache.get("w-x") is not None, "the locator must survive an unreachable backend"
+
+
+def test_terminating_an_unknown_work_answers_without_resolving_anything(conn) -> None:  # type: ignore[no-untyped-def]
+    """On a node with no runtime installed at all, `--terminate` for a Work that has
+    no recorded runtime is `false`, not a refusal. There is nothing to reach, so
+    reaching for it is the bug."""
+    def _explode(name, session):                    # must never be called
+        raise AssertionError("resolution attempted for a Work with no runtime")
+
+    assert rl.terminate("w-never-launched", "s", loader=_explode) == "no_runtime"
+
+
+def test_a_foreign_backend_is_never_asked_about_a_recorded_handle(conn) -> None:  # type: ignore[no-untyped-def]
+    """The worst reachable outcome in this file, and the one round 1's fix missed.
+
+    Work running under backend A; the operator launches it under backend B without
+    `--force`. If B is asked to inspect A's token it finds nothing of its own, reports
+    `absent`, the entry is dropped as stale, and B starts a second runtime while A's
+    keeps running with its handle lost forever. Two live agents on one Work — exactly
+    what the duplicate guard exists to prevent, arriving through the guard itself
+    (#225 review round 2, finding 1).
+
+    Round 1 fixed `--force` and `--terminate` and left this path, which is where the
+    guard actually lives."""
+    _work(conn)
+    owner, newcomer = FakeBackend(), FakeBackend()
+    with locked() as cache:
+        cache.put("w-x", backend="owner", token="tok-owner",
+                  started_at="2026-08-19T00:00:00+00:00")
+
+    inspected: list[str] = []
+
+    class _Owner(FakeBackend):
+        def inspect(self, handle):
+            inspected.append(handle.token)
+            return super().inspect(handle)
+
+    owner = _Owner()
+    with pytest.raises(rl.Refused, match="already running"):
+        rl.launch(newcomer, conn, "w-x", agent_kind="codex", cwd="/tmp",
+                  loader=lambda *_: owner)
+    assert inspected == ["tok-owner"], "the RECORDED backend must answer liveness"
+    assert newcomer.launched == [], "no second runtime"
+    with locked() as cache:
+        assert cache.get("w-x") is not None, "the owner's handle must survive"
+
+
+def test_an_unreachable_owner_refuses_rather_than_dropping_the_entry(conn) -> None:  # type: ignore[no-untyped-def]
+    """Unknown liveness is not absence. If the backend that owns the runtime cannot be
+    reached, the answer is a refusal an operator can act on — never a dropped handle
+    and a fresh runtime."""
+    _work(conn)
+    newcomer = FakeBackend()
+    with locked() as cache:
+        cache.put("w-x", backend="gone", token="tok-1",
+                  started_at="2026-08-19T00:00:00+00:00")
+
+    def _unreachable(name, session):
+        raise NoBackendAvailable(((name, BackendStatus(available=False,
+                                                       reason="binary_absent")),))
+
+    with pytest.raises(rl.Refused, match="liveness is unknown"):
+        rl.launch(newcomer, conn, "w-x", agent_kind="codex", cwd="/tmp",
+                  loader=_unreachable)
+    assert newcomer.launched == []
+    with locked() as cache:
+        assert cache.get("w-x") is not None
+
+
+def test_nothing_to_clean_up_is_distinguishable_from_could_not_clean_up(conn) -> None:  # type: ignore[no-untyped-def]
+    """Both were `{"terminated": false}` with exit 0, and the difference between them
+    is the whole of #210: one means the node is clean, the other means a live agent
+    may be loose. A caller checking a status code must not read the second as the
+    first (#225 review round 2, finding 2)."""
+    _work(conn)
+    rl.launch(FakeBackend(), conn, "w-x", agent_kind="codex", cwd="/tmp",
+              loader=lambda *_: FakeBackend())
+
+    assert rl.terminate("w-absent", "s", loader=lambda *_: FakeBackend()) == "no_runtime"
+    assert rl.terminate("w-x", "s",
+                        loader=lambda *_: FakeBackend(terminate_fails=True)) == "cleanup_incomplete"
+    with locked() as cache:
+        assert cache.get("w-x") is not None      # retained, because it may still be alive
+
+
+def test_teardown_needs_addressability_not_readiness(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """`detect()` answers "can I start new work here", which is a different question
+    from "can I address this runtime". A server that is down, draining or overloaded
+    reports unavailable while its processes keep running; refusing there declines to
+    clean up exactly when cleanup matters, on evidence about something else
+    (#225 review round 2, (d))."""
+    from kawa.runtime import registry
+
+    probed: list[str] = []
+
+    class _Degraded:
+        name = "degraded"
+
+        def detect(self):
+            probed.append("detect")
+            return BackendStatus(available=False, reason="server_absent")
+
+    monkeypatch.setattr(registry, "LOADERS", {"degraded": lambda s: _Degraded()})
+    backend = registry.for_teardown("degraded", "s")
+    assert backend.name == "degraded"
+    assert probed == [], "teardown must not gate on a readiness probe"
+
+
+def test_terminate_never_drops_a_handle_it_did_not_prove_gone(conn) -> None:  # type: ignore[no-untyped-def]
+    """The window that moving the probe outside the lock opened (#225 round 3).
+
+    `terminate` reads the entry under the lock, kills that runtime outside it, then
+    re-takes the lock to drop. In between, a launch can observe the runtime we just
+    killed, decide the entry is stale, and record a NEW one. An unconditional drop
+    erases the new runtime's handle while it keeps running — an orphan, and the next
+    launch starts a duplicate on the same Work.
+
+    The concurrent launch is simulated inside the loader, which is where the gap
+    genuinely is: everything from that call to the re-locked drop runs unlocked."""
+    _work(conn)
+    with locked() as cache:
+        cache.put("w-x", backend="fake", token="tok-old",
+                  started_at="2026-08-19T00:00:00+00:00")
+
+    def _loader_that_races(name, session):
+        with locked() as cache:                      # stands in for a concurrent launch
+            cache.put("w-x", backend="fake", token="tok-NEW",
+                      started_at="2026-08-19T00:00:01+00:00")
+        return FakeBackend()
+
+    assert rl.terminate("w-x", "s", loader=_loader_that_races) == "terminated"
+    with locked() as cache:
+        survivor = cache.get("w-x")
+    assert survivor is not None, "the newer runtime's handle was erased"
+    assert survivor["token"] == "tok-NEW"

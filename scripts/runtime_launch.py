@@ -48,7 +48,7 @@ import psycopg
 
 from kawa.runtime.contract import LaunchSpec, RuntimeBackendError, RuntimeHandle
 from kawa.runtime.handles import locked
-from kawa.runtime.herdr_backend import HerdrBackend
+from kawa.runtime.registry import CHOICES, NoBackendAvailable, for_teardown, resolve
 from kawa.runtime.wake import WAKE_CUE
 
 STATUS_FILE = "~/.kawa/status/runtime.status"
@@ -80,9 +80,14 @@ def work_is_actionable(conn: psycopg.Connection, work_ref: str) -> str:
 
 
 def launch(backend, conn, work_ref: str, *, agent_kind: str, cwd: str,
-           force: bool = False) -> RuntimeHandle:
+           force: bool = False, session: str = "kawa", loader=for_teardown) -> RuntimeHandle:
     """Steps 1-4. The lock spans the duplicate check AND the launch, so a
-    second caller cannot slip between them (§3a)."""
+    second caller cannot slip between them (§3a).
+
+    `loader` resolves the backend that owns an ALREADY-RECORDED runtime, which is not
+    necessarily the one being launched — see `terminate`. It is a parameter because
+    the recorded backend is a genuine second resolution point, and because the
+    launcher's own tests must be able to drive it without a registered adapter."""
     work_is_actionable(conn, work_ref)
     status = backend.detect()
     if not status.available:
@@ -92,8 +97,22 @@ def launch(backend, conn, work_ref: str, *, agent_kind: str, cwd: str,
         existing = cache.get(work_ref)
         if existing and not force:
             handle = RuntimeHandle(existing["backend"], existing["token"])
+            # The RECORDED backend answers the liveness question, never the one being
+            # launched. Asking the new backend about a foreign token is the worst
+            # reachable outcome in this file: `tmux.inspect(herdr-token)` finds no tmux
+            # session, reports `absent`, the entry is dropped as stale, and a second
+            # runtime starts while the first keeps running with its handle lost
+            # forever. #225 round 1 fixed --force and --terminate and left this path,
+            # which is where the guard actually lives (#225 round 2, finding 1).
             try:
-                observation = backend.inspect(handle)
+                prior = loader(existing["backend"], session)
+            except NoBackendAvailable as exc:
+                raise Refused(
+                    f"a runtime may still be running for {work_ref} under "
+                    f"{existing['backend']}, which cannot be reached here ({exc}); "
+                    "liveness is unknown, so this refuses rather than guessing") from exc
+            try:
+                observation = prior.inspect(handle)
             except RuntimeBackendError as exc:
                 # unknown liveness is NOT absence: refusing costs a --force,
                 # guessing costs a second live agent on the same Work
@@ -113,8 +132,17 @@ def launch(backend, conn, work_ref: str, *, agent_kind: str, cwd: str,
             # a second runtime (#210).
             print(f"[launch] --force: replacing recorded runtime for {work_ref}",
                   file=sys.stderr)
-            if not _terminate_proven(backend, RuntimeHandle(existing["backend"],
-                                                            existing["token"])):
+            # the RECORDED backend tears down the recorded runtime, even when this
+            # invocation is launching under a different one (#225 round 1, finding 1)
+            try:
+                prior = loader(existing["backend"], session)
+            except NoBackendAvailable as exc:
+                _report_cleanup_incomplete(work_ref)
+                raise Refused(
+                    f"--force cannot reach the backend that owns the recorded runtime "
+                    f"for {work_ref} ({exc}); refusing to start a second one.") from exc
+            if not _terminate_proven(prior, RuntimeHandle(existing["backend"],
+                                                          existing["token"])):
                 _report_cleanup_incomplete(work_ref)
                 raise Refused(
                     f"--force could not prove the recorded runtime for {work_ref} "
@@ -202,20 +230,61 @@ def deliver_wake(backend, handle: RuntimeHandle) -> None:
                                   "runtime stopped for input after the cue")
 
 
-def terminate(backend, work_ref: str) -> bool:
+def terminate(work_ref: str, session: str, *, loader=for_teardown) -> str:
     """Operator teardown. Same rule as every other exit: the entry goes only
     when the runtime is proven gone, so an unreachable backend leaves the
-    locator in place instead of quietly losing it (#210)."""
-    with locked() as cache:
+    locator in place instead of quietly losing it (#210).
+
+    The backend comes from the RECORDED ENTRY, never from `--backend`: a runtime is
+    torn down by the thing that created it. Nothing is resolved when there is no
+    entry, so terminating an unknown Work answers on a node with no runtime at all
+    rather than refusing to look (#225 review round 1, finding 1).
+
+    Returns one of three OUTCOMES rather than a bool. "Nothing to clean up" and
+    "there is still a runtime and I could not kill it" were both `false`, printed
+    identically and exited 0 — and that difference is the whole of #210. A caller
+    that cannot tell them apart has to parse stderr prose to find out whether a live
+    agent is loose (#225 review round 2, finding 2).
+
+      no_runtime          — no entry; nothing existed to tear down
+      terminated          — proven absent, entry dropped
+      cleanup_incomplete  — entry RETAINED; a runtime may still be alive
+    """
+    with locked() as cache:                          # read under the lock, decide outside
         entry = cache.get(work_ref)
-        if not entry:
-            return False
-        if not _terminate_proven(backend,
-                                 RuntimeHandle(entry["backend"], entry["token"])):
-            _report_cleanup_incomplete(work_ref)
-            return False
-        cache.drop(work_ref)
-    return True
+    if not entry:
+        return "no_runtime"
+
+    # Resolution and the teardown probe happen OUTSIDE the lock. `launch` already
+    # detects before locking for the same reason: a backend probe can hang on a
+    # socket, and holding the cache lock across it blocks every other invocation on
+    # this node — including the duplicate check that #210's guarantee rests on
+    # (#225 review round 2, (a)).
+    try:
+        backend = loader(entry["backend"], session)
+    except NoBackendAvailable:
+        _report_cleanup_incomplete(work_ref)         # handle RETAINED — see #210
+        return "cleanup_incomplete"
+    if not _terminate_proven(backend,
+                             RuntimeHandle(entry["backend"], entry["token"])):
+        _report_cleanup_incomplete(work_ref)
+        return "cleanup_incomplete"
+
+    with locked() as cache:
+        # Compare-and-drop on the token. Moving the probe outside the lock (round 2)
+        # opened a window: a launch can observe the runtime we just killed, decide the
+        # entry is stale, and record a NEW runtime before we re-take the lock. An
+        # unconditional drop would then erase the new runtime's handle while it keeps
+        # running — the orphan that makes the next launch start a duplicate, which is
+        # #210 reached by a different road (#225 review round 3).
+        #
+        # Dropping only OUR token is the whole fix: this call proved one runtime gone
+        # and may retire exactly that one.
+        current = cache.get(work_ref)
+        if current is None or current.get("token") != entry["token"]:
+            return "terminated"                      # ours is gone; someone else owns
+        cache.drop(work_ref)                         # the entry now, and it stays
+    return "terminated"
 
 
 def _cleanup(backend, handle: RuntimeHandle, work_ref: str) -> bool:
@@ -306,18 +375,46 @@ def main(argv: list[str] | None = None) -> int:
                         help="replace a recorded runtime for this Work")
     parser.add_argument("--terminate", action="store_true",
                         help="tear the recorded runtime down instead of launching")
+    parser.add_argument("--backend", default="auto", choices=CHOICES,
+                        help="which runtime to use; 'auto' takes the first available "
+                             "in the declared order and says which it took")
     args = parser.parse_args(argv)
 
-    backend = HerdrBackend(args.session)
+    # Teardown never consults `--backend`: the recorded entry names the backend that
+    # owns the runtime, and asking selection first meant a Work launched under a
+    # backend that later went down could not be terminated at all (#225 round 1,
+    # finding 1). Nothing is resolved here — an unknown Work answers `false` even on
+    # a node with no runtime installed.
     if args.terminate:
-        found = terminate(backend, args.work_ref)
-        print(json.dumps({"work_ref": args.work_ref,
-                          "terminated": found}, indent=2))
+        outcome = terminate(args.work_ref, args.session)
+        payload = {"work_ref": args.work_ref, "outcome": outcome,
+                   "terminated": outcome == "terminated"}
+        if outcome == "cleanup_incomplete":
+            # exit 2, like every other refusal: a retained handle means a runtime may
+            # still be alive, and that must not read as success to a caller that only
+            # checks the status code
+            print(json.dumps(payload, indent=2), file=sys.stderr)
+            return 2
+        print(json.dumps(payload, indent=2))
         return 0
+
+    # For a LAUNCH the operator's choice governs, and a node with no runtime installed
+    # refuses here with the probe results rather than raising an ImportError from a
+    # module-scope import — which is what made "kawa can launch work" mean "herdr is
+    # up" no matter what the contract said (#204 step 1).
+    try:
+        selection = resolve(args.backend, args.session)
+    except NoBackendAvailable as exc:
+        print(json.dumps({"work_ref": args.work_ref, "refused": str(exc),
+                          "probed": {name: status.reason or "available"
+                                     for name, status in exc.probes}}, indent=2),
+              file=sys.stderr)
+        return 2
+    backend = selection.backend
 
     with psycopg.connect(os.environ.get("KAWA_DSN", "dbname=kawa")) as conn:
         try:
-            handle = launch(backend, conn, args.work_ref,
+            handle = launch(backend, conn, args.work_ref, session=args.session,
                             agent_kind=args.agent_kind, cwd=args.cwd, force=args.force)
         except Refused as exc:
             print(json.dumps({"work_ref": args.work_ref, "refused": str(exc)}, indent=2),
@@ -328,6 +425,12 @@ def main(argv: list[str] | None = None) -> int:
                               "detail": exc.detail}, indent=2), file=sys.stderr)
             return 2
     print(json.dumps({"work_ref": args.work_ref, "backend": handle.backend,
+                      "backend_selected_by": selection.reason,
+                      # every candidate and why it declined — an operator reading a
+                      # result must be able to see WHY the earlier ones were skipped,
+                      # not just which one won (#225 review round 1, finding 2)
+                      "backend_probes": {name: status.reason or "available"
+                                         for name, status in selection.probes},
                       "launched": True, "woken": True}, indent=2))
     return 0
 

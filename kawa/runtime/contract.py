@@ -29,7 +29,11 @@ ATTENTION = ("needed", "not_needed", "unknown")
 
 # the complete, closed error vocabulary an adapter may surface (#200 rev 3):
 ERROR_CLASSES = (
-    "binary_absent",       # runtime binary not installed / not at pinned path
+    # "not installed on this node" — the runtime binary is missing or not at the
+    # pinned path, OR the adapter that drives it cannot be imported. One class rather
+    # than two because the operator's action is identical (install the backend) and
+    # the distinction lives in the detail string (#225 review round 1, finding 3).
+    "binary_absent",
     "server_absent",       # binary present, resident server not running (T1)
     "version_unsupported", # live version below the validated pin
     "already_running",     # a runtime already exists for this handle token
