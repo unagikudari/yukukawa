@@ -109,3 +109,50 @@ def test_live_wake_delivery_is_proven_by_the_runtimes_own_output(tmp_path, monke
         assert " ".join(WAKE_CUE.split(";")[0].split()) in screen
     finally:
         backend.terminate(handle)
+
+
+def test_the_wake_path_does_not_consult_the_prompt_primitive() -> None:
+    """#204 step 3's decision, pinned to what the code EXECUTES.
+
+    Two earlier attempts at this pin were both wrong, and the way they were wrong is
+    the useful part:
+
+      * The first drove a real agent and FAILED when the primitive agreed with the
+        gate, as an alarm for the recorded measurement expiring. A claude turn that
+        settles inside the timeout returns `ok` as ordinary latency variance — a test
+        that fails on someone else's latency gets deleted by whoever hits it, taking
+        the pin with it.
+      * The second asserted `"--wait" not in inspect.getsource(wake)`. That tests
+        SPELLING. It passes the moment the flag moves into a helper, a module
+        constant, a kwargs dict, or a joined string — none of which change what runs.
+
+    So this asserts the argument vector that actually reaches the runtime. A swap
+    made by any of those routes still has to put the flag on the command line, and
+    that is what is checked."""
+    from kawa.runtime.contract import RuntimeHandle
+    from kawa.runtime.herdr_backend import HerdrBackend
+    from kawa.runtime.wake import WAKE_CUE
+
+    dispatched: list[tuple] = []
+
+    class _Recording(HerdrBackend):
+        def _run_json(self, *args, **kw):          # type: ignore[no-untyped-def]
+            dispatched.append(args)
+            return {}
+
+        def _run(self, *args, **kw):               # type: ignore[no-untyped-def]
+            dispatched.append(args)
+            raise AssertionError(f"wake reached the raw runner: {args}")
+
+    backend = _Recording("kawa", binary="/nonexistent/herdr")
+    backend.wake(RuntimeHandle("herdr", "kawa-testtoken"), WAKE_CUE)
+
+    assert dispatched, "wake dispatched nothing at all"
+    flat = [str(a) for call in dispatched for a in call]
+    assert "--wait" not in flat, (
+        f"the wake path now passes --wait: {dispatched}. #204 step 3 measured that "
+        "the primitive reports SETTLEMENT rather than DELIVERY and declined the swap; "
+        "re-argue it there rather than changing this quietly.")
+    assert any("prompt" in str(call) or "submit" in str(call) for call in dispatched), (
+        f"wake no longer submits anything — this pin has drifted off its subject: "
+        f"{dispatched}")

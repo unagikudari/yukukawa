@@ -18,6 +18,59 @@ Measured traps this backend is built around (H0 probe, #198 comment):
     success. Hence `launch()` deliberately does not gate, `await_settled()`
     exists, and cue delivery is verified by the caller through
     `read_recent_output` (the launcher owns that gate, #200 §REAL-3).
+
+    Measured 2026-08-20 against herdr 0.8.0 (#204 step 3), because the plan
+    required comparing the documented `agent prompt --wait` primitive with that
+    gate rather than assuming either:
+
+        kind    trials  --wait outcome            echo gate
+        codex      4    ok (4)                    delivered (4)
+        claude     6    timeout (5), stalled (1)  delivered (5), not (1)
+
+    The five claude `timeout`s are FALSE ALARMS: the cue is demonstrably on the
+    runtime's own screen in every one of them. That is not a defect in the
+    primitive, it is a different question — `--wait` reports whether the agent
+    reached a SETTLED state after submission, while the launcher needs to know
+    whether the submission LANDED. The wake cue says "look", so an agent that
+    received it correctly may work for far longer than any submission timeout;
+    waiting for settlement therefore times out on a perfectly delivered cue.
+
+    Two things weaken the RATE without touching that reasoning, and both were
+    found by attacking this measurement rather than defending it:
+
+      * An eleventh trial whose prompt asked for a reply ("<marker> reply with the
+        single word ACK") returned `ok`, and both detectors agreed. So `--wait` is
+        not uniformly wrong on claude; the bare-marker prompts of the first six may
+        simply not have produced a state herdr recognises as settled.
+      * The node was at 79% of its weekly claude limit during the measurement, which
+        the runtime itself printed on screen. Throttling is an uncontrolled variable
+        in those five timeouts and was not held constant.
+
+    Neither rescues `--wait` as a delivery signal: slowness from ANY cause — real
+    work, throttling, a TUI herdr cannot read — produces the same timeout on a
+    submission that landed. That is the point, and it survives the confound. What
+    does NOT survive is treating 5/6 as a measured failure rate; it is one node, one
+    day, one quota state.
+
+    So the echo gate stays primary, and the swap is declined explicitly rather
+    than silently (#204 REAL-5). The one outcome that does carry delivery
+    information MIGHT be `agent_prompt_stalled` — herdr observing no state change
+    at all — which agreed with the gate on the single non-delivery seen.
+
+    An earlier revision of this comment declined that signal on ARCHITECTURAL
+    grounds ("it would put a herdr-specific signal in the launcher"). That
+    reason was wrong, and a design review said so: the contract forbids herdr's
+    vocabulary crossing the OUTER boundary, not this backend consuming it
+    internally — `inspect()` already eats `agent_status` and `_run_json` already
+    eats herdr's stderr, translating both into contract vocabulary. A
+    `--wait --timeout` used only to shorten this backend's own retry timing,
+    never surfacing "stalled" outward, would violate nothing.
+
+    The reason it is not adopted here is EVIDENTIAL and smaller: the agreement
+    is n=1. One occurrence is not a semantics, and the gate's retry loop already
+    makes non-delivery recoverable rather than merely detected, so the fast-fail
+    would buy latency, not correctness. That makes it a scoped follow-up under
+    #204 — worth measuring deliberately, not worth inferring from one sample.
   * **T3 — the server owns the PTYs**, so stopping it kills the agents. This
     backend never starts or stops a server; a missing server is a named
     refusal, not something to fix behind the operator's back.
