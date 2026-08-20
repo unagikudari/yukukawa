@@ -1,8 +1,12 @@
 # Deterministic collector: public-site daily visits -> observation.recorded.
-# Records YESTERDAY (the last complete UTC day); idempotent on re-run.
+# RECONCILES a trailing window of complete UTC days: it records every day in
+# the window that has no Observation yet, so a transient API failure is
+# repaired by the next run instead of losing that day forever (2026-08-19).
+# Idempotent — a recorded day costs one indexed SELECT and no API call.
 # Operator config (site/token/coverage floor) lives in git-ignored %h/kawa/.env.
 [Unit]
 Description=kawa goatcounter collector — daily site visits Observation
+OnFailure=kawa-onfail@%n.service
 
 [Service]
 Type=oneshot

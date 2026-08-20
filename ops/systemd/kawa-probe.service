@@ -5,6 +5,7 @@
 # (clean exit, nothing emitted).
 [Unit]
 Description=kawa reachability probe collector — node_reachable Observations
+OnFailure=kawa-onfail@%n.service
 
 [Service]
 Type=oneshot

@@ -46,12 +46,17 @@ import time
 
 import psycopg
 
+from kawa import nodehealth
 from kawa.runtime.contract import LaunchSpec, RuntimeBackendError, RuntimeHandle
 from kawa.runtime.handles import locked
 from kawa.runtime.registry import CHOICES, NoBackendAvailable, for_teardown, resolve
 from kawa.runtime.wake import WAKE_CUE
 
-STATUS_FILE = "~/.kawa/status/runtime.status"
+def status_file() -> str:
+    return os.path.join(nodehealth.status_dir(), "runtime.status")
+
+
+STATUS_FILE = None   # sentinel: resolved per call (kawa.nodehealth.status_dir)
 _ACTIONABLE = ("ready",)
 _LAUNCH_SETTLE_S = 90.0
 _WAKE_SETTLE_S = 60.0
@@ -337,7 +342,7 @@ def _report_cleanup_incomplete(work_ref: str) -> None:
 def write_status(work_ref: str, observation) -> None:
     """Operator display ONLY (§REAL-4). Overwrite-only, no history, and
     nothing in kawa reads it — Work standing comes from the log."""
-    path = os.path.expanduser(STATUS_FILE)
+    path = status_file()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = {
         "_contract": "runtime telemetry for humans; never an input to Work state",

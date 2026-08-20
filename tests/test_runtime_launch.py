@@ -116,6 +116,10 @@ def conn(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     c.commit()
     monkeypatch.setenv("KAWA_RUNTIME_HANDLES", str(tmp_path / "handles.json"))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # status paths follow KAWA_STATUS_DIR, not HOME (conftest hard-sets it to a
+    # suite-wide scratch dir) — point it back inside this test's tmp_path so the
+    # per-test isolation the HOME redirect gives is not silently shared
+    monkeypatch.setenv("KAWA_STATUS_DIR", str(tmp_path / ".kawa" / "status"))
     yield c
     c.rollback()
     c.close()

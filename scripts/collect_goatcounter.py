@@ -5,6 +5,11 @@ Usage:
   GOATCOUNTER_SITE=https://example.goatcounter.com GOATCOUNTER_API_TOKEN=... \
   GOATCOUNTER_SINCE=YYYY-MM-DD \
       python scripts/collect_goatcounter.py [--day YYYY-MM-DD] [--allow-partial]
+                                            [--max-fetches N]
+
+With no `--day` the run RECONCILES: it derives every day from the coverage
+floor to yesterday that has no Observation yet, and collects the oldest
+`--max-fetches` of them. There is no lookback window — see `reconcile()`.
 
 First external-API collector on the deterministic-observation-ingestion path
 (docs/deterministic-observation-ingestion-v0.1.md): Collector (GoatCounter
@@ -36,11 +41,25 @@ Measurement semantics (review round 1, verified against upstream source):
     REQUIRED — without a coverage floor a fresh deploy would happily record
     fake zeros, so absence is a configuration error, not a default.
 
+Why a reconciliation and not just yesterday (2026-08-20): the collector ran once a day
+against exactly one day, so a single transient API failure dropped that day
+FOREVER — the next run had already moved on to the next day. That is what lost
+2026-08-19 (two `HTTP 404` failures on days whose URLs answered 200 hours
+later). The schema already separates `occurred_at` (the day measured) from
+`fetched_at` (when the API was read), so a day collected late is recorded
+truthfully rather than approximately; and `observation_exists` already makes a
+re-run of a recorded day a no-op that never touches the API. Reconciling against the log
+therefore needs no new state — it is the one-day loop made convergent, and the
+failure it repairs is repaired without a retry heuristic.
+
 Loud path: missing/invalid config, API non-200, malformed body, or DB
-failure => nonzero exit (failed oneshot unit)."""
+failure => nonzero exit (failed oneshot unit). Under reconciliation ONE day's
+failure no longer suppresses the others: every day is attempted, the failures
+are named in the output, and the exit is still nonzero."""
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import hashlib
 import json
@@ -49,6 +68,7 @@ import sys
 import urllib.parse
 import urllib.request
 
+from kawa import nodehealth
 from kawa.application.services import Kawa
 from kawa.domain.credential import PublicKeyRegistry, load_or_create_local_node
 from kawa.domain.identity import IdentityContext
@@ -145,10 +165,124 @@ def run(conn, *, site: str, token: str, day: str, partial_ok: bool,
             "event_id": ev.event_id}
 
 
+def status_file() -> str:
+    return os.path.join(nodehealth.status_dir(), "goatcounter.status")
+
+
+STATUS_FILE = None      # sentinel: resolved per call (see nodehealth.status_dir)
+
+
+def write_status(status: dict, *, node: str, ok: bool, path: str | None = None) -> None:
+    """Leave a machine-readable trace of EVERY run, succeeded or failed.
+
+    The collector previously left none. Its two 404 failures were therefore
+    visible only in journald, where nothing looks, and the missing day was
+    found by hand three days later. A status file is only half a delivery
+    route — the reader is `scripts/brief.py`, which every session-start hook
+    already prints — but writing it on the failure path too is the half that
+    was actually missing: a status that is only written when things went well
+    cannot report that things went badly."""
+    path = path or STATUS_FILE or status_file()   # never frozen at import
+    if parent := os.path.dirname(path):
+        os.makedirs(parent, exist_ok=True)        # dirname("x.status") is "", which raises
+    payload = {"ts": _now(), "node": node, "ok": ok, **status}
+    tmp = f"{path}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp, path)      # a reader never sees a half-written status
+    except Exception:
+        # a status that cannot be serialised must not leave a half-written
+        # sibling behind either: the PREVIOUS status stays authoritative
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def recorded_days(conn, host: str, days: list[str]) -> set[str]:
+    """Which of `days` already carry a FINALIZED Observation for this site.
+
+    One query for the whole range, then the revision comparison happens in
+    Python against `_revision()` — the dedup key stays defined in exactly one
+    place. Assembling the same string in SQL would be a second spelling of one
+    concept, which is the defect class this repo keeps finding."""
+    if not days:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute("SELECT occurred_at, source_revision FROM event_observation "
+                    "WHERE predicate = %s AND occurred_at >= %s AND occurred_at <= %s",
+                    (PREDICATE, f"{days[0]}T00:00:00Z", f"{days[-1]}T00:00:00Z"))
+        rows = cur.fetchall()
+    want = {_revision(host, d, False): d for d in days}
+    return {want[rev] for _, rev in rows if rev in want}
+
+
+def reconcile(conn, *, since: str, partial_ok: bool, max_fetches: int,
+              site: str, **kw) -> dict:
+    """Record every day in [coverage floor, yesterday] that has no Observation.
+
+    There is deliberately NO window. Round-1 review of #228 confirmed what a
+    trailing window costs: a day that is not repaired before it ages past the
+    window falls off the back and is never revisited, and — worse — the status
+    file goes back to `ok:true` the moment the gap leaves the window, so the
+    collector actively reports health over a permanent hole. Bounding the
+    LOOKBACK was the wrong bound.
+
+    What actually needs bounding is API calls, so that is what is bounded:
+    the missing days are derived from the log, the oldest `max_fetches` are
+    collected this run, and the rest are named in `deferred` rather than
+    silently dropped. A backlog therefore drains over successive runs and the
+    series still converges, because the floor is the coverage start and never
+    moves forward on its own.
+
+    A run that ends with the series still incomplete reports `ok:false`. For a
+    collector whose product IS a complete daily series, a hole is not a
+    healthy state, and self-clearing on the next good run keeps that honest."""
+    today = _utc_today()
+    floor = datetime.date.fromisoformat(since)
+    if floor > today:
+        raise ValueError(f"GOATCOUNTER_SINCE {since} is in the future — configuration error")
+    if max_fetches < 1:
+        raise ValueError(f"--max-fetches must be >= 1 (got {max_fetches})")
+
+    last = today - datetime.timedelta(days=1)
+    days, cur = [], floor
+    while cur <= last:
+        days.append(cur.isoformat())
+        cur += datetime.timedelta(days=1)
+
+    host = urllib.parse.urlsplit(site).hostname or site
+    missing = [d for d in days if d not in recorded_days(conn, host, days)]
+    targets = missing[:max_fetches]          # oldest first: the tail is the fragile end
+    deferred = missing[len(targets):]
+
+    results, failed = [], []
+    for day in targets + ([today.isoformat()] if partial_ok else []):
+        try:
+            results.append(run(conn, day=day, since=since, partial_ok=partial_ok,
+                               site=site, **kw))
+        except Exception as exc:
+            conn.rollback()
+            failed.append({"day": day, "error": f"{type(exc).__name__}: {exc}"})
+
+    done = {r["day"] for r in results if "event_id" in r}
+    still_missing = [d for d in missing if d not in done]
+    return {"range": [floor.isoformat(), last.isoformat()],
+            "recorded": [r for r in results if "event_id" in r],
+            "skipped": [r for r in results if "skipped" in r],
+            "failed": failed,
+            "deferred": deferred,
+            "missing": still_missing}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    yesterday = (_utc_today() - datetime.timedelta(days=1)).isoformat()
-    ap.add_argument("--day", default=yesterday, help="UTC day to observe (default: yesterday)")
+    ap.add_argument("--day", default=None,
+                    help="observe exactly this UTC day (default: reconcile every "
+                         "missing day since the coverage floor)")
+    ap.add_argument("--max-fetches", type=int, default=10,
+                    help="API calls per run when --day is absent (default: 10); "
+                         "the remaining missing days are named and drain next run")
     ap.add_argument("--allow-partial", action="store_true",
                     help="permit recording the current, incomplete UTC day")
     ap.add_argument("--credential", default=os.path.expanduser("~/.kawa/node_credential.json"))
@@ -168,15 +302,47 @@ def main() -> int:
         return 2
     node = os.environ.get("KAWA_NODE") or os.uname().nodename.split(".")[0]
     try:
+        common = dict(site=site, token=token, partial_ok=args.allow_partial,
+                      since=since, node_ref=node,
+                      credential_path=args.credential, keys_path=args.keys)
         with connect() as conn:
-            status = run(conn, site=site, token=token, day=args.day,
-                         partial_ok=args.allow_partial, since=since,
-                         node_ref=node, credential_path=args.credential, keys_path=args.keys)
+            if args.day is not None:
+                status = run(conn, day=args.day, **common)
+            else:
+                status = reconcile(conn, max_fetches=args.max_fetches, **common)
     except Exception as exc:
-        print(f"goatcounter collect FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
+        err = f"{type(exc).__name__}: {exc}"
+        print(f"goatcounter collect FAILED: {err}", file=sys.stderr)
+        _try_write_status({"error": err}, node=node, ok=False)
         return 2
+    # STUCK days fail; DRAINING days defer. Round 2 of #228 caught the earlier
+    # rule (`ok` iff the series is complete) crying wolf: a first run against a
+    # floor 300 days back would fire OnFailure for ~30 consecutive runs of a
+    # backlog draining exactly as designed, indistinguishable from a real
+    # fault. `missing` is exactly `failed` ∪ `deferred`, and a day that cannot
+    # be collected lands in `failed` on EVERY run — so keying the loud path on
+    # failures alone loses no stuck day and silences the expected backfill.
+    # The backlog stays visible in the payload without being an alarm.
+    ok = not status.get("failed")
+    _try_write_status(status, node=node, ok=ok)
     print(json.dumps(status, indent=2))
+    if not ok:
+        for f in status.get("failed", []):
+            print(f"goatcounter collect FAILED for {f['day']}: {f['error']}", file=sys.stderr)
+        if status.get("missing"):
+            print(f"goatcounter series incomplete: {len(status['missing'])} day(s) "
+                  f"missing ({', '.join(status['missing'][:5])}"
+                  f"{'…' if len(status['missing']) > 5 else ''})", file=sys.stderr)
+        return 2
     return 0
+
+
+def _try_write_status(status: dict, *, node: str, ok: bool) -> None:
+    """Never let the reporting channel become the thing that fails the run."""
+    try:
+        write_status(status, node=node, ok=ok)
+    except Exception as exc:                      # pragma: no cover - defensive
+        print(f"goatcounter status file unwritable: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

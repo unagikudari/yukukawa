@@ -1,0 +1,27 @@
+# The OnFailure hook, once, for every kawa resident — replaces the
+# supervisor-only kawa-supervisor-onfail.service (2026-08-20).
+#
+# Why a template: only kawa-supervisor.service actually had an OnFailure=.
+# kawa-archive.service claimed one in a comment and did not set it, and the
+# three collectors had none at all — so kawa-goatcounter.service failed on
+# 2026-08-19 and 2026-08-20, dropped a day of the site-visit series, and left
+# no trace outside journald. The instance name IS the failed unit, so the
+# marker names itself correctly instead of every failure claiming to be the
+# supervisor's.
+#
+# Wire it as:  OnFailure=kawa-onfail@%n.service
+# `%n` is the failing unit's full name, so `%i` here is e.g.
+# `kawa-goatcounter.service` and the marker is read by kawa/nodehealth.py,
+# which the session brief prints. Deliberately dependency-free: /bin/sh only,
+# because it has to work when the thing that failed is the Python environment.
+[Unit]
+Description=kawa unit failure marker — %i (OnFailure hook)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'ts=$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ); \
+  d="${KAWA_STATUS_DIR:-%h/.kawa/status}"; \
+  echo "%i FAILED at $ts (see: systemctl --user status %i)"; \
+  mkdir -p "$d"; \
+  printf "{\\"ts\\": \\"%%s\\", \\"unit\\": \\"%%s\\", \\"unit_failure\\": true}\n" "$ts" "%i" \
+    > "$d/%i.onfail"'

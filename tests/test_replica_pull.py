@@ -60,7 +60,7 @@ def _cycle(dest, source, tmp_path, **kw):  # type: ignore[no-untyped-def]
         node_ref="replica-b", actor_ref="replica-pull",
         keys_path=str(tmp_path / "keys.json"), trust_path=str(tmp_path / "trust.json"),
         credential_path=str(tmp_path / "replica-cred.json"),
-        status_file=str(tmp_path / "replica.status"), scopes=("fleet",))
+        status_file=str(tmp_path / "replica-pull.status"), scopes=("fleet",))
     defaults.update(kw)
     return defaults, run_cycle(dest, source, **defaults)
 

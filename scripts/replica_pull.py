@@ -7,7 +7,7 @@ Usage (timer-driven on the replica node; both targets NAMED, fail-closed):
   KAWA_NODE=evo python scripts/replica_pull.py
       [--keys ~/.kawa/keys.json] [--trust ~/.kawa/trust.json]
       [--credential ~/.kawa/node_credential.json]
-      [--status-file ~/.kawa/status/replica.status] [--scopes fleet]
+      [--status-file ~/.kawa/status/replica-pull.status] [--scopes fleet]
       [--source-trust PATH --puller-node NODE]
 
 Every run, in order:
@@ -44,6 +44,7 @@ import sys
 
 import psycopg
 
+from kawa import nodehealth
 from kawa.application.services import Kawa
 from kawa.domain.credential import PublicKeyRegistry, load_or_create_local_node
 from kawa.domain.identity import IdentityContext
@@ -155,7 +156,8 @@ def main() -> int:
     ap.add_argument("--keys", default=os.path.expanduser("~/.kawa/keys.json"))
     ap.add_argument("--trust", default=os.path.expanduser("~/.kawa/trust.json"))
     ap.add_argument("--credential", default=os.path.expanduser("~/.kawa/node_credential.json"))
-    ap.add_argument("--status-file", default=os.path.expanduser("~/.kawa/status/replica.status"))
+    ap.add_argument("--status-file",
+                    default=os.path.join(nodehealth.status_dir(), "replica-pull.status"))
     ap.add_argument("--scopes", default="fleet",
                     help="comma-separated requested scopes (the RETAIN set)")
     ap.add_argument("--source-trust", default=os.environ.get("KAWA_SOURCE_TRUST"),

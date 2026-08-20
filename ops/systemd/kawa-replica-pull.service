@@ -5,6 +5,7 @@
 # DSN carries a password — mode 0600, never unit text).
 [Unit]
 Description=kawa replica pull — anti-entropy + frontier lag observation (12B)
+OnFailure=kawa-onfail@%n.service
 
 [Service]
 Type=oneshot

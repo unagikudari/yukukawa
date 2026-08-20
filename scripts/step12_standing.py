@@ -32,11 +32,17 @@ import os
 import subprocess
 import sys
 
+from kawa import nodehealth
+
 REQUIRED_DAYS = 7            # R1: >=7 consecutive days of real operation
 PROPAGATION_BOUND_S = 65.0   # R2: T + 5s with T=60s
 SUPERVISOR_STALE_S = 120     # durability-policy: 2 x tick
 DRILL2_WORK = "w-step12-drill2-replica-kill"
-STATUS_FILE = os.path.expanduser("~/.kawa/status/supervisor.status")
+STATUS_FILE = None   # sentinel: resolved per call, never frozen at import
+
+
+def _status_path() -> str:
+    return os.path.join(nodehealth.status_dir(), "supervisor.status")
 
 
 def archive_streak(rows: list[tuple[dt.date, bool, bool, str | None]],
@@ -151,7 +157,8 @@ def assemble(proofs: list[tuple[dt.datetime, bool, bool, str | None]],
     }
 
 
-def compute(conn, status_file: str = STATUS_FILE) -> dict:
+def compute(conn, status_file: str | None = None) -> dict:
+    status_file = status_file or _status_path()
     now = dt.datetime.now(dt.timezone.utc)
     with conn.cursor() as cur:
         # events.policy_digest is authoritative (ATTEST envelope); the source_revision

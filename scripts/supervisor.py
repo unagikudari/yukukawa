@@ -47,6 +47,7 @@ import sys
 import time
 import urllib.request
 
+from kawa import nodehealth
 from kawa.application.services import Kawa
 from kawa.domain.credential import PublicKeyRegistry, load_or_create_local_node
 from kawa.domain.identity import IdentityContext
@@ -227,7 +228,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tick", type=float, default=60.0)     # policy value (R2)
     ap.add_argument("--once", action="store_true")
-    ap.add_argument("--status-file", default=os.path.expanduser("~/.kawa/status/supervisor.status"))
+    ap.add_argument("--status-file",
+                    default=os.path.join(nodehealth.status_dir(), "supervisor.status"))
     ap.add_argument("--state-file", default=os.path.expanduser("~/.kawa/supervisor.state.json"))
     ap.add_argument("--credential", default=os.path.expanduser("~/.kawa/node_credential.json"))
     ap.add_argument("--keys", default=os.path.expanduser("~/.kawa/keys.json"))

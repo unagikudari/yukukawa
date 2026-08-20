@@ -53,7 +53,12 @@ Changing any value changes the digest; the measurement lineage visibly splits.
   private halves are discarded after signing (finding 2); every replica enrolls
   them SEALED — `revoke(key, from_seq=head+1)` — so no future event of those
   origins can ever be admitted
-- status file: `~/.kawa/status/replica.status` (written on EVERY run, success or
+- status file: `~/.kawa/status/replica-pull.status` — named for its UNIT, not
+  its script (round-1 review of #228): the OnFailure marker is
+  `kawa-replica-pull.service.onfail`, and a status file called `replica.status`
+  derives a different component key, so a later good run could never supersede
+  the marker. `test_every_unit_status_name_matches_its_own_unit` holds the two
+  names together. (Written on EVERY run, success or
   failure; staleness bound `now − status.ts > 2 × cadence`, same as 12A)
 
 ## Supervisor (12C)
@@ -77,7 +82,7 @@ Changing any value changes the digest; the measurement lineage visibly splits.
   worst case is a duplicate surfacing, never a silent omission. A Work that
   leaves `ready` is pruned; becoming eligible again surfaces again
 - supervision is EXTERNAL (R7): `WatchdogSec=180` (3 missed ticks), 
-  `Restart=on-failure`, `OnFailure=kawa-supervisor-onfail.service`; any tick
+  `Restart=on-failure`, `OnFailure=kawa-onfail@%n.service`; any tick
   exception ⇒ status ok=false + exit 2 (the loud path, R2)
 - bridge (F3): the broker message to `<node>-cc-primary` is a SECONDARY surface,
   deprecated at birth — every status write carries `"bridge":
@@ -94,6 +99,44 @@ Changing any value changes the digest; the measurement lineage visibly splits.
 - journald via systemd unit output
 - staleness bound: `now − status.ts > 2 × cadence` means the loop is dead —
   computable by ANY external watcher without kawa code
+
+## Reading the status files (2026-08-20)
+
+Every bullet above ends in a status file, and until 2026-08-20 nothing read
+them. `kawa-goatcounter.service` failed on the 19th and the 20th, dropped a day
+of the site-visit series, and was found by hand on the third day; journald had
+the evidence throughout. "Computable by ANY external watcher" was true and
+irrelevant — no watcher existed.
+
+- reader: `kawa/nodehealth.py`, printed by `scripts/brief.py` after the Kawa
+  brief. Deliberately NOT part of `kawa.brief`: that is a read over replicated
+  projections, this is one machine's opinion about its own daemons, and it is
+  not an Event
+- silent when healthy — a block that prints every session is one the reader
+  learns to skip, which is how the same failure goes unread twice
+- `OnFailure=kawa-onfail@%n.service` on EVERY resident (one template, instanced
+  by the failing unit's own name) catches the case a status file cannot: a
+  process killed before it could write anything. A later successful run
+  supersedes a marker systemd cannot clear
+- status paths resolve through `nodehealth.status_dir()`, honouring
+  `KAWA_STATUS_DIR`; a test asserts no resident hardcodes the path. This is the
+  filesystem half of the test fence below, added after a test wrote
+  `node: "test", ok: false` into the operator's real status directory
+
+- `ok` distinguishes STUCK from DRAINING, not complete from incomplete: a day
+  the collector cannot fetch lands in `failed` on every run and stays loud,
+  while a bounded backlog draining as designed reports `ok:true` with the
+  outstanding days named in the payload. The earlier rule (not-ok whenever the
+  series had a hole) fired `OnFailure` on every run of a first backfill —
+  a loud path that cries wolf during normal work is a loud path nobody reads
+
+**Not covered, deliberately:** staleness. The bounds above (`now − status.ts >
+2 × cadence`) are stated per resident and the reader does not yet evaluate
+them, so a resident that is disabled or whose timer never fires produces
+neither an `ok:false` nor an `OnFailure` marker and stays invisible. Crash and
+reported-failure are covered; *silently stopped* is not. Closing it needs a
+cadence per unit that is derived rather than transcribed — retire this
+paragraph when that exists.
 
 ## Test fence (12A, #129 rev 3 F1)
 

@@ -3,6 +3,7 @@
 # state; the Observation + status file are written by the script itself.
 [Unit]
 Description=kawa archive cycle — export full segments + restore-proof (12A)
+OnFailure=kawa-onfail@%n.service
 
 [Service]
 Type=oneshot

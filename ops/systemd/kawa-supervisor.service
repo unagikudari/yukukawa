@@ -4,7 +4,7 @@
 # first-class surfaces; the broker message is a deprecated-at-birth bridge (F3).
 [Unit]
 Description=kawa supervisor — resident pull loop, surfaces newly-eligible Work (12C)
-OnFailure=kawa-supervisor-onfail.service
+OnFailure=kawa-onfail@%n.service
 
 [Service]
 Type=notify

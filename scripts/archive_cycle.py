@@ -31,6 +31,7 @@ import json
 import os
 import sys
 
+from kawa import nodehealth
 from kawa.application.services import Kawa
 from kawa.domain.credential import PublicKeyRegistry, load_or_create_local_node
 from kawa.domain.identity import IdentityContext
@@ -143,7 +144,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--archive-dir", default=os.path.expanduser("~/.kawa/archive/segments"))
     ap.add_argument("--segment-size", type=int, default=100)   # policy value
-    ap.add_argument("--status-file", default=os.path.expanduser("~/.kawa/status/archive.status"))
+    ap.add_argument("--status-file",
+                    default=os.path.join(nodehealth.status_dir(), "archive.status"))
     ap.add_argument("--credential", default=os.path.expanduser("~/.kawa/node_credential.json"))
     ap.add_argument("--keys", default=os.path.expanduser("~/.kawa/keys.json"))
     args = ap.parse_args()

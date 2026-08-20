@@ -2,6 +2,7 @@
 # as Observations. Failure semantics per §B — absence or refusal, never zero.
 [Unit]
 Description=kawa node telemetry collector — deterministic self-observations
+OnFailure=kawa-onfail@%n.service
 
 [Service]
 Type=oneshot

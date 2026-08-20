@@ -44,6 +44,7 @@ import os
 import subprocess
 import sys
 
+from kawa import nodehealth
 from kawa.application.services import Kawa
 from kawa.domain.credential import PublicKeyRegistry, load_or_create_local_node
 from kawa.domain.identity import IdentityContext
@@ -249,7 +250,7 @@ def main() -> int:
                 fetched_at=now, **kwargs)
         conn.commit()
     status["emitted"] = len(readings)
-    status_file = os.path.expanduser("~/.kawa/status/telemetry.status")
+    status_file = os.path.join(nodehealth.status_dir(), "telemetry.status")
     os.makedirs(os.path.dirname(status_file), exist_ok=True)
     with open(status_file, "w", encoding="utf-8") as f:
         json.dump(status, f, indent=2)

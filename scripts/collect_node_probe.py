@@ -62,6 +62,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from kawa import nodehealth
 from kawa.application.services import Kawa
 from kawa.domain.credential import PublicKeyRegistry, load_or_create_local_node
 from kawa.domain.identity import IdentityContext
@@ -225,7 +226,7 @@ def main() -> int:
 
 
 def _write_status(status: dict) -> None:
-    status_file = os.path.expanduser("~/.kawa/status/probe.status")
+    status_file = os.path.join(nodehealth.status_dir(), "probe.status")
     os.makedirs(os.path.dirname(status_file), exist_ok=True)
     with open(status_file, "w", encoding="utf-8") as f:
         json.dump(status, f, indent=2)
