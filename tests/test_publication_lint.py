@@ -10,6 +10,8 @@ import sys
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
 
+import pytest  # noqa: E402
+
 import lint_publication_boundary as lint  # noqa: E402
 from lint_publication_boundary import PRAGMA, scan_text  # noqa: E402
 
@@ -399,11 +401,36 @@ def test_every_baseline_entry_says_why():  # type: ignore[no-untyped-def]
 def test_the_tracked_tree_has_no_unreviewed_findings():  # type: ignore[no-untyped-def]
     """Run the gate itself, not just its rules.
 
-    CI runs this linter and its path filter covers tests/** — so a lint
-    failure is never silent. But the feedback arrives at PR time, and on
-    2026-08-20 a fixture IP added to THIS file failed the gate while the whole
-    pytest suite passed, which is how it reached a commit. Same check, an
-    order of magnitude sooner.
+    CORRECTION (2026-08-21). When this test was added I wrote that it merely
+    arrives sooner than CI, "so a lint failure is never silent". That was
+    false, and measured: `gh api repos/.../actions/workflows` returns
+    total_count 0 and total runs 0. `.github/workflows/` has never existed in
+    this repository — the workflow YAML lives in `ci/`, a path GitHub does not
+    read, so drift-check and security-check have never executed.
+
+    The `ci/` arrangement is documented in ONE of its two files —
+    `ci/security-check.yml` says "STAGED, not active … activation is deferred"
+    — and an OAuth token without the `workflow` scope cannot push to
+    `.github/workflows/` anyway. Round 2 checked whether that deferral was a
+    tracked condition and it is not: neither SECURITY.md's five gate points nor
+    the 2026-08-18 gate record mentions installing or activating a workflow
+    anywhere, and the gate RAN and passed without touching it. So this was not
+    a deferral that lapsed at a checkpoint; it was never a condition. An
+    earlier revision of this docstring called the arrangement "deliberate",
+    which is generous in the wrong direction.
+
+    `ci/drift-check.yml` carried no banner, and that is the file I read.
+
+    So this is not a faster copy of a gate that runs elsewhere. Until those
+    workflows are installed it is the only thing running gate-1 automatically
+    on EVERY CHANGE to the tracked tree — `scripts/export_public_mirror.py`
+    also runs the linter, but over history and only when someone exports, a
+    different trigger. Round 1 caught me writing "the ONLY thing" here: the
+    same over-claim, one size smaller, as the sentence this docstring exists to
+    correct.
+
+    That narrower claim is what the 2026-08-20 incident measures — a fixture IP
+    added to THIS file reached a commit because nothing runs per-change.
 
     It calls `scan_tree`, the same function `main()` uses, so the suite and CI
     cannot come to disagree about what a scan is.
@@ -442,3 +469,69 @@ def test_scan_tree_skips_binaries_and_the_register_itself(tmp_path):  # type: ig
     assert paths == {"notes.md"}          # the text file, and only it
     assert "logo.png" not in paths        # a binary is not scanned as text
     assert lint.BASELINE not in paths     # the register never scans itself
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "MEASURED 2026-08-21: this repository has never run CI. The Actions API "
+    "reports 0 workflows and 0 runs, and .github/workflows/ has never existed "
+    "— `git log --diff-filter=A -- .github/workflows/*` is empty. Installing "
+    "them needs a token with the `workflow` scope, which the operator has to "
+    "grant. strict=True on purpose: the moment they ARE installed this XPASSes "
+    "and fails the suite, forcing this marker to be deleted rather than "
+    "outliving the condition it describes."))
+def test_every_ci_workflow_is_actually_installed():
+    """A workflow-shaped file at a path GitHub does not read is not CI.
+
+    `ci/drift-check.yml` is the only thing that runs gate-1 and the drift lint
+    in automation — except it does not run at all, because GitHub reads
+    `.github/workflows/`, not `ci/`. Two linters this repository treats as
+    mechanized have therefore never executed once.
+
+    The file says it about itself, one level up: line 19 of ci/drift-check.yml
+    reads *"a lint wired to a path filter that excludes what it lints is not a
+    mechanism, it is a mechanism-shaped file"*. The path filter is fine. The
+    path is not."""
+    import pathlib
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    sources = sorted(p.name for p in (repo / "ci").glob("*.yml"))
+    installed = sorted(p.name for p in (repo / ".github" / "workflows").glob("*.yml")) \
+        if (repo / ".github" / "workflows").is_dir() else []
+    # Round 1: an AssertionError inside an xfail block still counts as the
+    # expected failure, so an emptied or renamed ci/ reads as "still not
+    # installed" rather than erroring loudly. Named rather than hidden; strict
+    # forces a look whenever the state flips either way.
+    assert sources, "no workflow sources found — has ci/ moved?"
+    # FILENAMES only, and that is a known hole (round 1): a stub under the
+    # right name satisfies this, and once the xfail marker is removed it passes
+    # forever while diverging from ci/. The intended endgame is that ci/ stops
+    # being a parallel copy at install time, not that this test grows a content
+    # hash to police two authoritative directories.
+    missing = [s for s in sources if s not in installed]
+    assert missing == [], (
+        f"workflow sources GitHub will never read: {missing}. "
+        f"They live in ci/ but Actions only reads .github/workflows/.")
+
+
+def test_every_staged_workflow_declares_that_it_is_staged():
+    """`ci/*.yml` looks like CI and is not. Each file must say so itself.
+
+    Round 1 of #233 found why this matters: security-check.yml carried a
+    STAGED banner from the start, drift-check.yml did not, and the file
+    WITHOUT the banner is the one that got read and described as live — in a
+    commit message, a test docstring, an operator report, and (round 2) the
+    2026-08-18 publication gate record's own PASS evidence.
+
+    Round 2 then made the point this test exists for: adding the missing
+    banner is prose fixing a prose failure with more prose, and nothing stops
+    the third file from recreating the bug. This is the structural half. It
+    cannot make anyone read the banner, but it can guarantee there is one."""
+    import pathlib
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    sources = sorted((repo / "ci").glob("*.yml"))
+    assert sources, "no workflow sources found — has ci/ moved?"
+    silent = [p.name for p in sources
+              if "STAGED, not active" not in p.read_text(encoding="utf-8")]
+    assert silent == [], (
+        f"workflow files that do not declare they are staged: {silent}. "
+        f"GitHub reads .github/workflows/, not ci/ — a file here that does not "
+        f"say so will be read as live, which is exactly what happened.")

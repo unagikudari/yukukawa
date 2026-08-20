@@ -49,3 +49,57 @@ per-work Results) hold the same facts in typed state.
 - Runtime Situation Awareness / live event-log coordinates stay outside the
   export by design (condition 6).
 - The final visibility action requires explicit owner confirmation.
+
+---
+
+## Addendum, 2026-08-21 — gate point 1's evidence contained a false statement
+
+Appended rather than edited. The boundary policy forbids silently rewriting a
+tracked historical record, and this record is evidence for a decision that
+already executed; the original text above stands as written.
+
+**The claim.** Gate point 1's evidence says the gate-1 linter "runs in CI
+alongside the drift lint", and records the point as PASS.
+
+**It does not, and never did.** Measured 2026-08-21:
+
+```
+gh api repos/.../actions/workflows            ->  total_count: 0
+gh api repos/.../actions/runs                 ->  total_count: 0
+git log --diff-filter=A --all -- .github/workflows/*   ->  empty
+```
+
+`.github/workflows/` has never existed on any branch. The workflow YAML lives
+in `ci/`, which GitHub Actions does not read. On the day this record was
+written, and on every day before and since, no CI has run in this repository.
+
+**What is unaffected.** Point 1's substance does not depend on the false
+clause. The linter's result — 0 findings with an empty baseline over the
+tracked tree — was and is real, and the load-bearing half of that point is the
+EXPORT gate, which applies the same scanner to every blob of the full exported
+history and deletes the export on any finding. That runs on every export and
+is verified: it failed on 2026-08-20 over 15 historical blobs and refused to
+publish. **The gate held. Its description of how did not.**
+
+**What is affected.** The point was recorded as mechanized in a way it was
+not. A reader of this record would conclude that a regression in the tracked
+tree is caught automatically on every change, and until 2026-08-20 nothing did
+that. `tests/test_publication_lint.py::test_the_tracked_tree_has_no_unreviewed_findings`
+now does, in the suite.
+
+**A related claim in this record has no basis either.** `ci/security-check.yml`
+says activation is "deferred to the publication gate". Neither SECURITY.md's
+five points nor this record's standing conditions mention installing or
+activating a workflow anywhere. The gate ran on 2026-08-18 and passed all five
+points without touching CI installation, so the deferral did not lapse at a
+checkpoint — it was never a tracked condition. Calling the arrangement
+deliberate is generous in the wrong direction.
+
+**Standing condition added by this addendum.** Installing `ci/*.yml` into
+`.github/workflows/` requires an OAuth token with the `workflow` scope, which
+the operating token does not carry (verified: push rejected by name, Contents
+API 404). Until that is granted and the workflows are installed, no statement
+in this repository may describe them as running.
+`tests/test_publication_lint.py::test_every_ci_workflow_is_actually_installed`
+holds that condition as a strict xfail, so activation forces the claim to be
+revisited rather than left to prose.

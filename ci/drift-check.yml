@@ -3,6 +3,14 @@ name: drift-check
 # Structurally enforces Theme E (silent vocabulary / document-set drift) using
 # registry/vocabulary.json as the single source of truth. Fails on any NEW drift;
 # pre-existing known drift is tracked in registry/drift-baseline.json. See issue #34.
+#
+# STAGED, not active: lives in ci/ — GitHub Actions only executes
+# .github/workflows/. security-check.yml has carried this banner from the
+# start; this file did not, and on 2026-08-20 that omission was read as
+# "CI runs this" and written into a commit message, a test docstring and an
+# operator report. A staging convention only one of its members declares is
+# not a convention. Until activation the gate runs locally, and
+# tests/test_publication_lint.py runs it in the suite on every change.
 
 on:
   pull_request:
