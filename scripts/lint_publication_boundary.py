@@ -11,6 +11,9 @@ only greps what is regular enough to grep:
   dns          DNS-shaped tokens outside the public-safe allowlist
   home-path    /home/<user> or /Users/<user> operator paths (%h stays legal)
   email        address-bearing tokens outside the noreply/doc allowlist
+  private-repo an actionable URL (browse or clone) into this project's own
+               GitHub namespace that is not the public projection — a 404 for
+               every reader of the published tree
 
 Baseline mechanism mirrors lint_vocabulary_drift: known findings live in
 registry/publication-baseline.json; NEW findings fail (exit 1);
@@ -74,9 +77,57 @@ _ALLOWED_HOST_SUFFIXES = (
     "w3.org", "json-schema.org", "schema.org",   # standards namespaces
 )
 _ALLOWED_HOSTS = ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+
+# `github.com` is an allowed HOST, so every rule above waves through a URL
+# whose PATH names a private repository. Measured 2026-08-20 on the live public
+# mirror: one such link shipped and 404s for every anonymous reader.
+#
+# The rule is scoped to THIS project's own namespace rather than to a list of
+# private repo names: a link to a third party's repository is ordinary, while a
+# link into our own namespace is either the public projection or something a
+# reader cannot open. Stated that way it needs no maintenance when a new
+# private repository appears.
+#
+# It targets an ACTIONABLE COORDINATE, not a mention. `github:<owner>/<repo>#122`
+# as provenance is sanctioned by publication condition 7 (internal events keep
+# pinning private coordinates) and is deliberately NOT matched: nothing renders
+# it as a link and nothing clones it. A browse URL and an SSH clone URL both
+# invite the reader to ACT and then fail them, which is the harm.
+#
+# That distinction is CONDITIONAL, not a permanent property of the coordinate
+# syntax (round 1): it holds only while nothing downstream turns the coordinate
+# into an href. If a renderer ever auto-links `github:owner/repo#N`, the
+# coordinate becomes a broken promise too and this rule must widen.
+#
+# Retire or re-scope this rule when EITHER: the dev repository is published (it
+# would have nothing left to protect), OR the project needs more than one dev
+# namespace — the exact-owner match assumes exactly one.
+_OWN_GH_OWNER = "unagikudari"
+# Two entries, so a tuple is proportionate. It fails CLOSED — a new public repo
+# raises a false finding that CI surfaces, rather than a private one slipping
+# through — which is the right direction for a gate to be wrong in. Revisit the
+# shape, not just the contents, if this ever needs a third entry.
+_PUBLIC_GH_REPOS = ("yukukawa", "yukukawa.dev")
+# The trailing dot is a legal FQDN root label that browsers and DNS resolve
+# identically, so `github.com./owner/repo` is a WORKING link (round 1 bypass a).
+# `[/:]` covers the SSH clone form alongside the browse form — and `(?::\d+)?`
+# is the tax for that: without it an explicit port ate the owner slot, so
+# `github.com:443/<owner>/<repo>` (a working browse URL) parsed "443" as the
+# owner and never reached the check at all (round 2). The port group demands
+# DIGITS, so it cannot swallow the `git@host:owner/repo` form, whose owner
+# starts with a letter. A purely numeric owner in SSH form does mis-parse; it
+# can never be ours, and the rule only fires on an exact owner match.
+_GH_REPO_URL = re.compile(
+    r"\b(?:github\.com|raw\.githubusercontent\.com)\.?(?::\d+)?[/:]"
+    r"([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)", re.I)
 _ALLOWED_EMAIL_SUFFIXES = ("@users.noreply.github.com", "@example.com",
                            "@example.org", "@example.invalid",
                            "noreply@anthropic.com")
+# EXACT matches, not suffixes. `git@github.com` is the universal SSH user for
+# every GitHub clone URL, not an operator address — documenting a clone command
+# should not read as an email leak. It cannot go in the tuple above, which is
+# suffix-matched: `git@github.com` there would also admit `someone-git@github.com`.  (pub-lint:allow)
+_ALLOWED_EMAILS_EXACT = ("git@github.com",)
 
 _SKIP_DIRS = (".git/",)
 _BINARY_HINT = b"\0"
@@ -176,6 +227,24 @@ def scan_text(text: str, path: str = "<text>") -> list[dict]:
     for i, line in enumerate(text.splitlines(), 1):
         if PRAGMA in line:
             continue
+        # This rule reads the RAW line, before masking. Round 1 reported that
+        # masking `{owner}` to `x` lets a private link escape; MEASURED, it does
+        # not — `github.com/{owner}/kawa` misses with or without masking, and it
+        # is not a working link anyone can follow, so missing it is correct.
+        #
+        # The ordering still matters, in the OTHER direction: masking turns
+        # `github.com/<owner>/yukukawa{n}` into `...yukukawax`, which is not the
+        # public repo and raises a FALSE finding on a perfectly legal URL
+        # pattern. Masking exists so template syntax cannot pose as a hostname;
+        # here the segments are path components and it only invents payload.
+        for m in _GH_REPO_URL.finditer(line):
+            owner, repo = m.group(1), m.group(2)
+            if repo.lower().endswith(".git"):
+                repo = repo[: -len(".git")]
+            if (owner.lower() == _OWN_GH_OWNER
+                    and repo.lower() not in _PUBLIC_GH_REPOS):
+                add("private-repo", i, f"{owner}/{repo}")
+
         line = _mask_placeholders(line)
         for m in _URL.finditer(line):
             if not _host_allowed(m.group(1)):
@@ -199,8 +268,9 @@ def scan_text(text: str, path: str = "<text>") -> list[dict]:
             add("home-path", i, m.group(1))
         for m in _EMAIL.finditer(line):
             e = m.group(0)
-            if not any(e.lower().endswith(s) or e.lower() == s
-                       for s in _ALLOWED_EMAIL_SUFFIXES):
+            if (e.lower() not in _ALLOWED_EMAILS_EXACT
+                    and not any(e.lower().endswith(s) or e.lower() == s
+                                for s in _ALLOWED_EMAIL_SUFFIXES)):
                 add("email", i, e)
     return findings
 

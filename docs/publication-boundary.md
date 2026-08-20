@@ -86,6 +86,24 @@ provided that they carry **no network coordinates, hostnames/DNS names, IP addre
 
 Consequently, **purging historical nicknames via Git history rewrite is prohibited**: commit identity is load-bearing for Kawa provenance (Events, Results, and review verdicts pin commit hashes; multiple nodes hold checkouts). A finding against a bare nickname is resolved by this exception or by a forward-only change, never by rewriting published history.
 
+## Private coordinates: coordinate yes, link no
+
+The dogfood exception above keeps private *coordinates* in the published tree on purpose — publication condition 7 has internal Events pinning private commit SHAs, and evaluation corpora cite the planning issues they were derived from. That retention is deliberate and stays.
+
+An **actionable coordinate** into the private repository is a different thing, and is prohibited: it is a 404 for every reader of the published tree, and it promises a destination the boundary exists to withhold. The distinction is whether the reader is invited to *act* — follow it, or clone it — not whether the private name appears.
+
+- `github:<owner>/<repo>#122` as a provenance coordinate — **allowed** (nothing renders it, nothing clones it)
+- `https://github.com/<owner>/<private-repo>/issues/122` — **prohibited**
+- `git@github.com:<owner>/<private-repo>.git` — **prohibited** (a clone instruction the reader cannot carry out is the same broken promise in different syntax)
+
+**This distinction is conditional, not a property of the coordinate syntax.** It holds only while nothing downstream turns `github:<owner>/<repo>#N` into an href. If a renderer ever auto-links that form, the coordinate becomes a broken promise too and the rule must widen to cover it. Re-check this whenever the publication surface gains a new renderer.
+
+Mechanized as the `private-repo` rule in `scripts/lint_publication_boundary.py`, scoped to this project's own GitHub namespace: a link to a third party's repository is ordinary, while a link into our own namespace is either the public projection or something a reader cannot open. Scoping it that way needs no maintenance when a new private repository appears.
+
+Found by inspection on 2026-08-20, not by the gate: `github.com` is an allowlisted **host**, so every existing rule waved through a URL whose **path** named the private repo — and one such link had already shipped to the live mirror.
+
+Retire or re-scope this rule when **either**: the dev repository is published (nothing left to protect), **or** the project needs more than one development namespace — the exact-owner match assumes exactly one.
+
 ## GitHub metadata plane
 
 Changing repository visibility publishes more than the tree: **Issues, Pull Requests, review comments, and their full edit histories** become public at the same moment, and edits do not remove prior revisions from public view. Forks and caches make this exposure irreversible.

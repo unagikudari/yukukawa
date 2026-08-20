@@ -44,7 +44,12 @@ def seeded(conn_a):  # type: ignore[no-untyped-def]
 
 def _q(qid, cls, sampling, labels, about=None, text=None):  # type: ignore[no-untyped-def]
     return {"query_id": qid, "expected_class": cls, "sampling": sampling,
-            "labels": labels, "provenance": "https://github.com/unagikudari/kawa/issues/122",
+            # provenance spells the private coordinate the way the real corpus
+            # does (`github:<owner>/<repo>#N`), not as a URL: the published
+            # mirror carries this file, and a link into the private repository
+            # is a 404 for every reader. See the private-repo rule in
+            # scripts/lint_publication_boundary.py.
+            "labels": labels, "provenance": "github:unagikudari/kawa#122",
             "labeled_by": "test", "labeled_at": "2026-08-15T00:00:00Z",
             "intent": {"about": about, "text_terms": text}}
 

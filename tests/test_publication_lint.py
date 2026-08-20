@@ -238,3 +238,103 @@ def test_home_path_account_is_case_insensitive():  # type: ignore[no-untyped-def
     """/Users/ already accepted a capitalised account; /home/ did not, so a
     Linux account starting with a capital slipped through (round 2 finding 5)."""
     assert _rules("WorkingDirectory=" + "/".join(["", "home", "Alice"])) == ["home-path"]
+
+
+# --- private-repo: an allowed HOST can still carry an unreachable PATH -------
+# Measured 2026-08-20: one such link shipped in the live public mirror and 404s
+# for every anonymous reader. `github.com` is allowlisted as a host, so none of
+# the rules above ever looked at the path. The URLs below are assembled from
+# parts so this file does not itself carry the coordinate it is testing.
+
+_OWNER = "unagi" + "kudari"
+_PRIVATE = _OWNER + "/kawa"
+
+
+def _flagged(text):  # type: ignore[no-untyped-def]
+    return [f["match"] for f in scan_text(text) if f["rule"] == "private-repo"]
+
+
+def test_a_url_into_the_private_repo_is_a_finding():  # type: ignore[no-untyped-def]
+    assert _flagged(f"see https://github.com/{_PRIVATE}/issues/122") == [_PRIVATE]
+
+
+def test_the_clone_and_raw_forms_are_caught_too():  # type: ignore[no-untyped-def]
+    """`.git` and raw.githubusercontent are the same unreachable path wearing
+    different syntax — the earlier url-host rule waved both through."""
+    assert _flagged(f"git clone https://github.com/{_PRIVATE}.git") == [_PRIVATE]
+    assert _flagged(f"https://raw.githubusercontent.com/{_PRIVATE}/main/README.md") \
+        == [_PRIVATE]
+
+
+def test_the_public_projection_is_not_a_finding():  # type: ignore[no-untyped-def]
+    """The rule must not flag the one namespace link a reader CAN open, or the
+    landing page and README become unwritable."""
+    assert _flagged(f"https://github.com/{_OWNER}/yukukawa/issues") == []
+    assert _flagged(f"https://github.com/{_OWNER}/yukukawa.dev") == []
+
+
+def test_third_party_repositories_stay_legal():  # type: ignore[no-untyped-def]
+    """Scoping to our OWN namespace is what makes the rule maintenance-free —
+    it must not become a general ban on linking to GitHub."""
+    assert _flagged("https://github.com/psf/requests/issues/1") == []
+    assert _flagged("https://github.com/owner/repo") == []
+
+
+def test_the_provenance_COORDINATE_form_is_deliberately_legal():  # type: ignore[no-untyped-def]
+    """Publication condition 7 keeps internal events pinned to private
+    coordinates. The rule targets LINKABILITY, not mention: `github:owner/repo#N`
+    invites no click and resolves nothing, so flagging it would make the
+    sanctioned spelling unwritable and push authors toward the URL form —
+    exactly backwards."""
+    assert _flagged(f"provenance: github:{_PRIVATE}#122") == []
+    assert _flagged(f"tracked in {_PRIVATE} PR #109") == []
+
+
+def test_a_trailing_dot_host_is_still_a_working_link():  # type: ignore[no-untyped-def]
+    """Round-1 bypass (a): the root label is legal FQDN syntax that browsers
+    and DNS resolve identically, and the first regex required `/` immediately
+    after the host — so one extra character reached the reader as a working
+    link into the private repo."""
+    assert _flagged(f"https://github.com./{_PRIVATE}/issues/122") == [_PRIVATE]
+
+
+def test_the_ssh_clone_form_is_an_actionable_coordinate_too():  # type: ignore[no-untyped-def]
+    """Not browser-clickable, but a clone instruction the reader cannot carry
+    out is the same broken promise wearing different syntax — which is why the
+    rule is scoped to ACTIONABLE coordinates rather than to hyperlinks."""
+    assert _flagged(f"git clone git@github.com:{_PRIVATE}.git") == [_PRIVATE]
+
+
+def test_masking_does_not_invent_a_private_repo_out_of_the_public_one():  # type: ignore[no-untyped-def]
+    """The rule reads the RAW line, and this is why.
+
+    Round 1 reported the opposite risk — that masking `{owner}` to `x` lets a
+    private link escape. Measured, it does not: that shape misses either way,
+    and it is not a link anyone can follow. What masking DOES do is rewrite
+    `yukukawa{n}` to `yukukawax`, which is not the public repo, so a legal URL
+    pattern in a doc becomes a false finding against the boundary."""
+    assert _flagged(f"https://github.com/{_OWNER}/yukukawa{{n}}") == []
+    assert _flagged("https://github.com/{owner}/kawa") == []       # still not a link
+    assert _flagged(f"see https://github.com/{_PRIVATE}/pull/{{n}}") == [_PRIVATE]
+
+
+def test_the_rule_survives_an_owner_with_different_case():  # type: ignore[no-untyped-def]
+    assert _flagged(f"https://GitHub.com/{_OWNER.upper()}/Kawa/pull/9") != []
+
+
+def test_the_ssh_clone_user_is_not_an_email_leak():  # type: ignore[no-untyped-def]
+    """`git@github.com` is the universal SSH user for every GitHub clone URL.
+    Documenting a clone command must not read as an operator address — and the
+    exemption is EXACT, not suffix-matched, or it would admit any address
+    ending in the same characters."""
+    assert "email" not in _rules("git clone git@github.com:owner/repo.git")
+    assert "email" in _rules("contact someone-git@github.com")   # pub-lint:allow
+
+
+def test_an_explicit_port_does_not_eat_the_owner_slot():  # type: ignore[no-untyped-def]
+    """Round-2 residual, introduced by round 1's own widening: allowing `:` as
+    a separator (for the SSH clone form) let `github.com:443/owner/repo` parse
+    the PORT as the owner, so the real owner was never checked. A browse URL
+    with an explicit port is unusual but entirely working."""
+    assert _flagged(f"https://github.com:443/{_PRIVATE}/issues/1") == [_PRIVATE]
+    assert _flagged(f"https://github.com:443/{_OWNER}/yukukawa") == []
