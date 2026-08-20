@@ -180,9 +180,29 @@ class HerdrBackend:
         # refusals on STDERR with rc=1 — reading only stdout turns every real
         # refusal into "malformed" (found by the live conformance smoke; the
         # first captures had merged the streams and hidden the split)
-        raw = proc.stdout if proc.stdout.strip() else proc.stderr
+        #
+        # The EXIT CODE decides, not which stream happens to be non-empty
+        # (round 2 of #202, delivered late). Choosing by emptiness meant a
+        # failed command that wrote anything JSON-shaped to stdout was reported
+        # as SUCCESS while its structured refusal sat unread on stderr —
+        # measured: rc=1 + a result on stdout + `server_not_running` on stderr
+        # returned the result. For a launcher, "the command failed" silently
+        # becoming "it worked" is the worst reading available here.
+        if proc.returncode != 0:
+            # a refusal may be on either stream; classify both, and never let
+            # stdout content promote a failed command to success
+            self._classify(proc.stderr)
+            self._classify(proc.stdout)
+            # The DETAIL is composed here, never forwarded: this module's
+            # contract is that herdr's own stderr text does not ride outward.
+            # But "malformed_response" with nothing attached is unroutable in a
+            # log, and a usage error (rc=2, help text instead of JSON) is a bug
+            # on OUR side that would otherwise read as the runtime misbehaving.
+            # The exit code is ours to report; the runtime's words are not.
+            raise RuntimeBackendError(NAME, "malformed_response",
+                                      f"exit {proc.returncode}, no structured refusal")
         try:
-            payload = json.loads(raw or b"")
+            payload = json.loads(proc.stdout or b"")
         except ValueError:
             # the refusal text itself is NOT forwarded: it carries socket
             # paths and pane ids, exactly the vocabulary the boundary excludes
@@ -201,10 +221,35 @@ class HerdrBackend:
         """Turn a structured refusal into our closed vocabulary. Always
         raises: `_AgentAbsent` for 'the runtime is simply not there', a typed
         adapter error otherwise — never the runtime's own wording."""
-        code = str((payload.get("error") or {}).get("code", ""))
+        err = payload.get("error")
+        if err and not isinstance(err, dict):
+            # `{"error": "boom"}` used to raise AttributeError straight through
+            # the boundary — an exception outside ERROR_CLASSES, which is
+            # exactly what the closed vocabulary exists to prevent. A refusal
+            # we cannot read the shape of is malformed, not a crash.
+            raise RuntimeBackendError(NAME, "malformed_response")
+        code = str((err or {}).get("code", ""))
         if code == "agent_not_found":
             raise _AgentAbsent()
         raise RuntimeBackendError(NAME, _ERROR_MAP.get(code, "backend_refused"))
+
+    @staticmethod
+    def _pane_id(node: object, error_class: str = "malformed_response") -> str:
+        """The pane id out of a herdr node, or a named refusal — never a crash.
+
+        `(node or {}).get("pane_id")` reads as a guard and is not one: `or {}`
+        substitutes for a FALSY node, so a truthy non-mapping (a string, a
+        list) reaches `.get` and raises AttributeError through the boundary.
+        Round 1 of #231 found this in `launch()` and `terminate()` after the
+        same shape was fixed in `_classify_payload` — three instances of one
+        mistake, with `inspect()`'s correct `isinstance` check sitting between
+        two of them. One definition now, so there is no fourth."""
+        if not isinstance(node, dict):
+            raise RuntimeBackendError(NAME, error_class)
+        pane = node.get("pane_id")
+        if not isinstance(pane, str) or not pane:
+            raise RuntimeBackendError(NAME, error_class)
+        return pane
 
     def _classify(self, raw: bytes) -> None:
         """Same, for a stream we have not parsed yet. A body that is not a
@@ -248,11 +293,21 @@ class HerdrBackend:
         env_args: list[str] = []
         for key, value in sorted(build_env().items()):
             env_args += ["--env", f"{key}={value}"]
-        created = self._run_json("workspace", "create", "--label", token,
-                                 "--cwd", spec.cwd, *env_args)
-        pane = ((created.get("root_pane") or {}).get("pane_id"))
-        if not isinstance(pane, str) or not pane:
-            raise RuntimeBackendError(NAME, "malformed_response")
+        try:
+            created = self._run_json("workspace", "create", "--label", token,
+                                     "--cwd", spec.cwd, *env_args)
+        except _AgentAbsent:
+            # The sentinel is INTERNAL — letting it escape puts a
+            # non-ERROR_CLASSES exception across the boundary (#231 round 1).
+            # It becomes `backend_refused`, NOT `malformed_response`: herdr
+            # spoke correctly and said something specific, and round 2 was
+            # right that burying a nameable condition in the can't-parse bucket
+            # costs a caller the difference between "the response was garbled"
+            # and "the workspace vanished between two calls" — which deserve
+            # different retries.
+            raise RuntimeBackendError(NAME, "backend_refused",
+                                      "runtime absent during launch")
+        pane = self._pane_id(created.get("root_pane"))
         try:
             self._start_when_shell_ready(token, spec.agent_kind, pane)
         except RuntimeBackendError as exc:
@@ -276,6 +331,12 @@ class HerdrBackend:
             try:
                 self._run_json("agent", "start", token, "--kind", kind, "--pane", pane)
                 return
+            except _AgentAbsent:
+                # same translation, same reasoning as `launch()` above: a
+                # structured refusal this call site cannot act on is a refusal,
+                # not a parse failure.
+                raise RuntimeBackendError(NAME, "backend_refused",
+                                          "runtime absent while starting agent")
             except RuntimeBackendError as exc:
                 if exc.error_class != "runtime_not_ready" or time.monotonic() >= deadline:
                     raise RuntimeBackendError(NAME, "launch_timeout", "shell never became available") \
@@ -337,9 +398,7 @@ class HerdrBackend:
             result = self._run_json("agent", "get", handle.token)
         except _AgentAbsent:
             return
-        pane = (result.get("agent") or {}).get("pane_id")
-        if not isinstance(pane, str) or not pane:
-            raise RuntimeBackendError(NAME, "terminate_failed")
+        pane = self._pane_id(result.get("agent"), "terminate_failed")
         self._close_pane(pane)
         try:
             self._run_json("agent", "get", handle.token)

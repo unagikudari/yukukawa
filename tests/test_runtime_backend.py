@@ -334,7 +334,11 @@ def test_server_death_is_a_failure_not_an_absent_runtime(fake_herdr):  # type: i
                  lambda: backend.terminate(handle)):
         with pytest.raises(RuntimeBackendError) as excinfo:
             call()
-        assert excinfo.value.error_class in ("server_absent", "malformed_response")
+        # EXACT, not "one of two" (round 2 of #202, delivered late). Accepting
+        # malformed_response as well made this test pass for a regression that
+        # turned every structured refusal into "malformed" — which is the very
+        # stream-selection bug it was written beside.
+        assert excinfo.value.error_class == "server_absent"
     assert backend.detect().reason == "server_absent"
 
 
@@ -357,3 +361,181 @@ def test_fixtures_carry_no_operational_identifiers():  # type: ignore[no-untyped
 def test_observation_rejects_states_outside_the_triple():  # type: ignore[no-untyped-def]
     with pytest.raises(AssertionError):
         RuntimeObservation("herdr", "kawa-abc", "present", "done", "needed", "now")
+
+
+# --- the exit code decides, and a refusal we cannot read is not a crash ------
+# Round 2 of #202 (delivered two days after the PR merged) found both of these
+# by reading the code line by line. Both are boundary breaks: the adapter's
+# whole promise is that callers see ERROR_CLASSES and nothing else.
+
+class _Proc:
+    """Minimal stand-in for CompletedProcess — the point of these tests is the
+    stream/rc combinations a real herdr is not obliged to avoid."""
+    def __init__(self, returncode, stdout, stderr):  # type: ignore[no-untyped-def]
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+def _backend_returning(proc):  # type: ignore[no-untyped-def]
+    b = HerdrBackend.__new__(HerdrBackend)
+    b._run = lambda *a, **k: proc            # type: ignore[assignment]
+    return b
+
+
+_REFUSAL = json.dumps({"error": {"code": "server_not_running"}}).encode()
+_RESULT = json.dumps({"result": {"ok": 1}}).encode()
+
+
+def test_a_failed_command_is_never_promoted_to_success_by_its_stdout():  # type: ignore[no-untyped-def]
+    """Selecting the stream by emptiness meant rc=1 plus anything JSON-shaped
+    on stdout returned SUCCESS while the structured refusal sat unread on
+    stderr. For a launcher, a failed command silently reading as "it worked"
+    is the worst answer available."""
+    with pytest.raises(RuntimeBackendError) as e:
+        _backend_returning(_Proc(1, _RESULT, _REFUSAL))._run_json("x")
+    assert e.value.error_class == "server_absent"       # the refusal, not the result
+
+
+def test_a_nonzero_exit_with_only_a_result_is_still_a_failure():  # type: ignore[no-untyped-def]
+    """No structured refusal to name, but the command failed. Fail closed."""
+    with pytest.raises(RuntimeBackendError) as e:
+        _backend_returning(_Proc(2, _RESULT, b"herdr agent commands:"))._run_json("x")
+    assert e.value.error_class == "malformed_response"
+    # the exit code is OURS to report and is what makes the log routable; the
+    # runtime's own stderr text is not forwarded (module contract)
+    assert "exit 2" in str(e.value)
+    assert "herdr agent commands" not in str(e.value)
+
+
+def test_the_normal_paths_still_work():  # type: ignore[no-untyped-def]
+    """The measured shapes: rc=0 result on stdout, rc=1 refusal on stderr."""
+    assert _backend_returning(_Proc(0, _RESULT, b""))._run_json("x") == {"ok": 1}
+    with pytest.raises(RuntimeBackendError) as e:
+        _backend_returning(_Proc(1, b"", _REFUSAL))._run_json("x")
+    assert e.value.error_class == "server_absent"
+
+
+@pytest.mark.parametrize("err", ["boom", ["x"], 7])
+def test_an_unreadable_refusal_shape_stays_inside_the_closed_vocabulary(err):  # type: ignore[no-untyped-def]
+    """`{"error": "boom"}` raised AttributeError straight through the boundary
+    — an exception outside ERROR_CLASSES, which is precisely what the closed
+    vocabulary exists to prevent."""
+    with pytest.raises(RuntimeBackendError) as e:
+        HerdrBackend._classify_payload({"error": err})
+    assert e.value.error_class in ERROR_CLASSES
+    assert e.value.error_class == "malformed_response"
+
+
+# --- `(x or {}).get(...)` reads as a guard and is not one -------------------
+# Round 1 of #231 found the same mistake in launch() and terminate() after it
+# was fixed in _classify_payload — three instances, with inspect()'s correct
+# isinstance check sitting between two of them.
+
+@pytest.mark.parametrize("node", ["pane-1", ["pane-1"], 7, True])
+def test_a_truthy_non_mapping_is_refused_not_dereferenced(node):  # type: ignore[no-untyped-def]
+    """`or {}` substitutes only for a FALSY node, so a string or a list sails
+    past it into `.get` and raises AttributeError through the boundary."""
+    with pytest.raises(RuntimeBackendError) as e:
+        HerdrBackend._pane_id(node)
+    assert e.value.error_class in ERROR_CLASSES
+
+
+def test_the_pane_guard_keeps_each_caller_s_own_error_class():  # type: ignore[no-untyped-def]
+    """terminate() must still say terminate_failed, not malformed_response —
+    factoring the guard must not flatten what the caller reports."""
+    assert HerdrBackend._pane_id({"pane_id": "w1:p1"}) == "w1:p1"
+    for bad in ({}, {"pane_id": ""}, {"pane_id": 3}, "nope"):
+        with pytest.raises(RuntimeBackendError) as e:
+            HerdrBackend._pane_id(bad, "terminate_failed")
+        assert e.value.error_class == "terminate_failed"
+
+
+def test_launch_refuses_a_malformed_root_pane(fake_herdr, tmp_path):  # type: ignore[no-untyped-def]
+    """The call site must go through the guard, not just possess one."""
+    backend = fake_herdr(_READY)
+    backend._run_json = lambda *a, **k: {"root_pane": "not-a-mapping"}  # type: ignore[assignment]
+    with pytest.raises(RuntimeBackendError) as e:
+        backend.launch(LaunchSpec(work_ref="w-x", agent_kind="codex", cwd=str(tmp_path)))
+    assert e.value.error_class in ERROR_CLASSES
+
+
+def test_terminate_refuses_a_malformed_agent_node(fake_herdr):  # type: ignore[no-untyped-def]
+    backend = fake_herdr(_READY)
+    backend._run_json = lambda *a, **k: {"agent": "not-a-mapping"}      # type: ignore[assignment]
+    with pytest.raises(RuntimeBackendError) as e:
+        backend.terminate(RuntimeHandle("herdr", "kawa-abc"))
+    assert e.value.error_class == "terminate_failed"
+
+
+def test_the_internal_sentinel_never_reaches_a_caller(fake_herdr, tmp_path):  # type: ignore[no-untyped-def]
+    """`_AgentAbsent` is an INTERNAL marker for 'no such agent'. It is not in
+    ERROR_CLASSES, so a caller that meets it has been handed an exception the
+    contract promised could not occur. `launch()` and its retry loop both
+    call `_run_json` and neither used to translate it."""
+    import kawa.runtime.herdr_backend as hb
+    backend = fake_herdr(_READY)
+
+    def absent(*a, **k):  # type: ignore[no-untyped-def]
+        raise hb._AgentAbsent()
+    backend._run_json = absent                                          # type: ignore[assignment]
+    with pytest.raises(RuntimeBackendError) as e:
+        backend.launch(LaunchSpec(work_ref="w-x", agent_kind="codex", cwd=str(tmp_path)))
+    # backend_refused, NOT malformed_response: herdr spoke correctly and said
+    # something specific. Burying it in the can't-parse bucket costs a caller
+    # the difference between "the response was garbled" and "the runtime
+    # vanished between two calls" — which deserve different retries.
+    assert e.value.error_class == "backend_refused"
+    assert "absent" in str(e.value)
+
+    # and from inside the pane-readiness retry, which is a separate call site
+    with pytest.raises(RuntimeBackendError) as e2:
+        backend._start_when_shell_ready("kawa-abc", "codex", "w1:p1")
+    assert e2.value.error_class == "backend_refused"
+
+
+def test_every_run_json_call_site_translates_the_internal_sentinel():  # type: ignore[no-untyped-def]
+    """`_AgentAbsent` is not in ERROR_CLASSES; a caller must never meet it.
+
+    Enforced per CALL SITE, by AST. Round 2 of #231 was right that my first
+    check was too crude: it asked whether both strings appeared anywhere in a
+    method body, so a method with two `_run_json` calls where only one was
+    guarded would pass on the OTHER call's legitimate handler. This walks
+    every `Try` that contains a `_run_json` call and requires that same Try to
+    catch the sentinel — the technique #228's unit->script->status walker
+    already uses here."""
+    import ast
+    import inspect as _inspect
+    import kawa.runtime.herdr_backend as hb
+
+    tree = ast.parse(_inspect.getsource(hb))
+
+    def calls_run_json(node):  # type: ignore[no-untyped-def]
+        return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                   and n.func.attr == "_run_json" for n in ast.walk(node))
+
+    def catches_sentinel(try_node):  # type: ignore[no-untyped-def]
+        for h in try_node.handlers:
+            names = [h.type] if not isinstance(h.type, ast.Tuple) else list(h.type.elts)
+            if any(isinstance(t, ast.Name) and t.id == "_AgentAbsent" for t in names):
+                return True
+        return False
+
+    guarded, unguarded = 0, []
+    for fn in [n for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        if fn.name == "_run_json":
+            continue                       # the definition itself
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Try) and any(calls_run_json(b) for b in node.body):
+                guarded += 1
+                if not catches_sentinel(node):
+                    unguarded.append(f"{fn.name}:{node.lineno}")
+        # a call outside any Try at all is the other way to escape
+        tries = [n for n in ast.walk(fn) if isinstance(n, ast.Try)]
+        in_try = {id(n) for t in tries for b in t.body for n in ast.walk(b)}
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "_run_json" and id(node) not in in_try):
+                unguarded.append(f"{fn.name}:{node.lineno} (outside any try)")
+
+    assert unguarded == [], f"_run_json call sites that can leak _AgentAbsent: {unguarded}"
+    assert guarded >= 8, f"the walk stopped finding call sites (found {guarded})"
