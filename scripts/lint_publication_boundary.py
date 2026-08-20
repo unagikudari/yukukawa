@@ -275,6 +275,34 @@ def scan_text(text: str, path: str = "<text>") -> list[dict]:
     return findings
 
 
+def scan_tree(root: str) -> list[dict]:
+    """Every finding in the tracked tree at `root`.
+
+    ONE copy of the walk. It used to live inline in `main()`, and round 2 of
+    #230 caught the test that runs the gate re-implementing the same five
+    lines beside it: the two shared every data dependency but not the control
+    flow, so adding a skip rule or changing the binary sniff in one would let
+    the suite go green while CI went red — or the reverse. Factored while the
+    copies still agreed, rather than after they had disagreed once."""
+    findings: list[dict] = []
+    for rel in _tracked_files(root):
+        # The `_SKIP_DIRS` half is defensive and currently unreachable here:
+        # git refuses to track anything under `.git/`, so `git ls-files` cannot
+        # emit such a path (measured — a directory named `.git-like/` tracks
+        # fine and correctly does NOT match). It stays because the constant is
+        # shared with the export gate, and one definition beats two.
+        if any(rel.startswith(d) for d in _SKIP_DIRS) or rel == BASELINE:
+            continue
+        try:
+            raw = open(os.path.join(root, rel), "rb").read()
+        except OSError:
+            continue
+        if _BINARY_HINT in raw[:4096]:
+            continue
+        findings.extend(scan_text(raw.decode("utf-8", errors="replace"), rel))
+    return findings
+
+
 def _tracked_files(root: str) -> list[str]:
     out = subprocess.run(["git", "-C", root, "ls-files", "-z"],
                          capture_output=True, check=True)
@@ -289,6 +317,22 @@ def finding_key(f: dict) -> str:
     return f"{f['path']}::{f['rule']}::{f['match']}"
 
 
+def history_key(f: dict, oid: str) -> str:
+    """Baseline identity of a finding in ONE immutable historical blob.
+
+    `finding_key` is path-scoped, which is right for a live exception: the
+    fixture keeps its exemption across reformatting, and its own past
+    revisions inherit it. It is WRONG for a finding that exists only in
+    history. Accepting a superseded README under its path would also accept
+    the same string reappearing in the README tomorrow, so the register of
+    "already published, cannot be repaired" would quietly become a permanent
+    hole in the most-edited file in the tree.
+
+    A blob object id is content — it cannot be reissued for different bytes —
+    so an exemption granted here can never travel to new content."""
+    return f"{f['path']}@{oid}::{f['rule']}::{f['match']}"
+
+
 _key = finding_key   # back-compat alias for in-repo callers
 
 
@@ -298,10 +342,30 @@ def load_baseline(root: str) -> set[str]:
     Read from the tree being scanned rather than the caller's cwd, so the
     EXPORT gate vouches for the baseline it actually publishes — an exception
     can never be granted by a file that does not ship with the content."""
+    return set(load_baseline_reasons(root))
+
+
+def load_baseline_reasons(root: str) -> dict:
+    """The baseline as {key: why it is accepted}.
+
+    An entry records PUBLIC EXPOSURE that a human decided to accept. A bare
+    list of keys does not say what was decided or why, and the reason is
+    exactly what the next reviewer needs — so it lives WITH the key rather
+    than in a doc that drifts from it. The legacy list form still loads (the
+    reason reads as unknown) so an older tree stays scannable.
+
+    The other direction — an OLDER linter meeting this object form — needs no
+    code at all: `set()` over a dict yields its keys, so the pre-#230
+    `set(json.load(...))` degrades to exactly the right thing. That is a
+    fortunate property of `set()`, not a designed fallback; noted here so
+    nobody later "fixes" it by adding an isinstance check that is not needed."""
     path = os.path.join(root, BASELINE)
     if not os.path.exists(path):
-        return set()
-    return set(json.load(open(path)))
+        return {}
+    data = json.load(open(path))
+    if isinstance(data, list):
+        return {k: "" for k in data}
+    return dict(data)
 
 
 def main() -> int:
@@ -311,18 +375,7 @@ def main() -> int:
     args = ap.parse_args()
     root = os.path.abspath(args.root)
 
-    findings: list[dict] = []
-    for rel in _tracked_files(root):
-        if any(rel.startswith(d) for d in _SKIP_DIRS) or rel == BASELINE:
-            continue
-        full = os.path.join(root, rel)
-        try:
-            raw = open(full, "rb").read()
-        except OSError:
-            continue
-        if _BINARY_HINT in raw[:4096]:
-            continue
-        findings.extend(scan_text(raw.decode("utf-8", errors="replace"), rel))
+    findings = scan_tree(root)
 
     baseline_path = os.path.join(root, BASELINE)
     known = load_baseline(root)
@@ -342,10 +395,14 @@ def main() -> int:
         # hand edit to a small JSON file, which is reviewable as a diff. That is
         # the right amount of friction for removing a publication exception.
         os.makedirs(os.path.dirname(baseline_path), exist_ok=True)
+        reasons = load_baseline_reasons(root)
         fresh = {finding_key(f) for f in findings}
         unseen = sorted(known - fresh)
         keep = fresh | set(unseen)
-        json.dump(sorted(keep), open(baseline_path, "w"), indent=1)
+        # A regenerated entry keeps the reason a human wrote for it; a new one
+        # gets an empty string, which reads as "nobody has said why yet".
+        json.dump({k: reasons.get(k, "") for k in sorted(keep)},
+                  open(baseline_path, "w"), indent=1)
         print(f"[pub-lint] baseline rewritten: {len(findings)} finding(s) at HEAD, "
               f"{len(keep)} entries recorded")
         for k in unseen:

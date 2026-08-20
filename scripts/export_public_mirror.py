@@ -104,7 +104,7 @@ def lint_full_history(dest: str) -> list[str]:
     audited exception. Reading the baseline out of `dest` keeps it honest:
     the exception must ship with the content it excuses."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-    from lint_publication_boundary import (scan_text, finding_key, load_baseline,
+    from lint_publication_boundary import (scan_text, finding_key, history_key, load_baseline,
                                            BASELINE, _SKIP_DIRS)
     known = load_baseline(dest)
     objs = _run(["git", "-C", dest, "rev-list", "--objects", "--all"]).stdout
@@ -130,9 +130,25 @@ def lint_full_history(dest: str) -> list[str]:
         if b"\0" in raw[:4096]:
             continue
         for f in scan_text(raw.decode("utf-8", errors="replace"), path):
-            if finding_key(f) in known:
+            # TWO accepted forms, because "reviewed" means two different things.
+            #
+            # A path key exempts the LIVE exception and, by construction, every
+            # historical version of it — that is #201's design and it stays: a
+            # reviewed fixture should not need re-approving for each of its own
+            # past revisions.
+            #
+            # A blob key exempts ONE immutable object. It exists because the
+            # path key is far too broad for a finding that lives ONLY in
+            # history: baselining `README.md::private-repo::<owner>/<repo>` to
+            # accept a 2026-06 README would also silence the same link if
+            # someone put it back into the README tomorrow — a blind spot on
+            # the most-edited file in the tree. Measured 2026-08-20: the
+            # private-repo rule found exactly that, twelve already-published
+            # links in two superseded README blobs.
+            if finding_key(f) in known or history_key(f, oid) in known:
                 continue
-            findings.append(f"{f['rule']}: {path} ({oid[:10]}) {f['match']}")
+            findings.append(f"{f['rule']}: {path} ({oid[:10]}) {f['match']}"
+                            f"\n      baseline key (this blob only): {history_key(f, oid)}")
     # identity sweep: no non-public email may survive anywhere in history
     log = _run(["git", "-C", dest, "log", "--all", "--format=%an <%ae>%n%cn <%ce>"]).stdout
     for ident in sorted(set(log.decode().splitlines())):

@@ -104,6 +104,16 @@ Found by inspection on 2026-08-20, not by the gate: `github.com` is an allowlist
 
 Retire or re-scope this rule when **either**: the dev repository is published (nothing left to protect), **or** the project needs more than one development namespace — the exact-owner match assumes exactly one.
 
+### What the rule found in already-published history
+
+Turning it on over the export's full history surfaced **~183 such links across 13 superseded `README.md` blobs** — the README linked its planning issues and PRs by full URL before the public mirror existed. Every one of them is already published and **cannot be repaired**: history rewrite is prohibited above, and the objects live on GitHub and in any fork regardless of what this repository does. They are recorded in `registry/publication-baseline.json` with that reason stated.
+
+The no-rewrite rule above is written for bare nicknames, and this extends it to URLs. The extension does **not** rest on ranking the two: a private-repo URL leaks a different and, here, broader category — the repository's existence, its issue and PR numbers, the shape of its roadmap — but the disposition would be the same either way, because the constraint that forces it is *structural* and indifferent to which string triggered the finding. Commit identity is load-bearing for Kawa's own provenance (corpus fixtures and review Results pin exact commit SHAs), so rewriting history breaks the project's own event log. The disposition is "unrepairable", not "harmless".
+
+They are baselined by **blob**, not by path. A path-scoped exception (`README.md::private-repo::<owner>/<repo>`) would have accepted the same link reappearing in the live README tomorrow — a permanent blind spot on the most-edited file in the tree. A blob object id is content and cannot be reissued for different bytes, so the exemption cannot travel to new content. The live README is still guarded; verified by putting such a link back into it and watching the tree gate fail.
+
+Every baseline entry carries a written reason. The register records accepted **public exposure**, and a bare key does not say what was decided or why.
+
 ## GitHub metadata plane
 
 Changing repository visibility publishes more than the tree: **Issues, Pull Requests, review comments, and their full edit histories** become public at the same moment, and edits do not remove prior revisions from public view. Forks and caches make this exposure irreversible.

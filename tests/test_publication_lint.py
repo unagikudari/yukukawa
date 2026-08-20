@@ -10,6 +10,7 @@ import sys
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
 
+import lint_publication_boundary as lint  # noqa: E402
 from lint_publication_boundary import PRAGMA, scan_text  # noqa: E402
 
 
@@ -338,3 +339,106 @@ def test_an_explicit_port_does_not_eat_the_owner_slot():  # type: ignore[no-unty
     with an explicit port is unusual but entirely working."""
     assert _flagged(f"https://github.com:443/{_PRIVATE}/issues/1") == [_PRIVATE]
     assert _flagged(f"https://github.com:443/{_OWNER}/yukukawa") == []
+
+
+# --- baseline identity: a path exception and a blob exception differ ---------
+
+def test_a_blob_exception_cannot_travel_to_new_content():  # type: ignore[no-untyped-def]
+    """The reason history findings are keyed by blob, not by path.
+
+    2026-08-20: the private-repo rule found ~183 links into the private repo
+    across 13 superseded README blobs, all already published and unrepairable
+    (history rewrite is prohibited). Accepting them under
+    `README.md::private-repo::<owner>/<repo>` would ALSO have accepted the same
+    link reappearing in the README tomorrow — a permanent blind spot on the
+    most-edited file in the tree. A blob id is content and cannot be reissued
+    for different bytes, so an exemption granted there stays there."""
+    f = {"path": "README.md", "rule": "private-repo", "match": "owner/repo"}
+    blob = lint.history_key(f, "a" * 40)
+    assert lint.history_key(f, "b" * 40) != blob       # per-blob, not per-path
+
+    # the property that matters: a baseline holding ONLY the blob key must
+    # leave a finding at the same path, same rule, same match still live
+    known = {blob}
+    assert lint.finding_key(f) not in known
+
+
+def test_the_baseline_carries_its_own_reason(tmp_path):  # type: ignore[no-untyped-def]
+    """An entry records accepted PUBLIC EXPOSURE. A bare key does not say what
+    was decided or why, and the reason is what the next reviewer needs."""
+    import json
+    import os
+    reg = tmp_path / "registry"
+    reg.mkdir()
+    key = "a.md::private-repo::owner/repo"
+    (reg / "publication-baseline.json").write_text(json.dumps({key: "reviewed: X"}))
+    assert lint.load_baseline(str(tmp_path)) == {key}
+    assert lint.load_baseline_reasons(str(tmp_path))[key] == "reviewed: X"
+
+
+def test_the_legacy_list_baseline_still_loads(tmp_path):  # type: ignore[no-untyped-def]
+    """An older tree must stay scannable — the export gate reads the baseline
+    out of the tree it is publishing, which may predate this format."""
+    import json
+    reg = tmp_path / "registry"
+    reg.mkdir()
+    (reg / "publication-baseline.json").write_text(json.dumps(["a.md::ip::192.0.2.1"]))
+    assert lint.load_baseline(str(tmp_path)) == {"a.md::ip::192.0.2.1"}
+    assert lint.load_baseline_reasons(str(tmp_path))["a.md::ip::192.0.2.1"] == ""
+
+
+def test_every_baseline_entry_says_why():  # type: ignore[no-untyped-def]
+    """The register of accepted exposure must not accumulate silent entries."""
+    import pathlib
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    reasons = lint.load_baseline_reasons(str(repo))
+    silent = sorted(k for k, why in reasons.items() if not why.strip())
+    assert silent == [], f"baseline entries with no stated reason: {silent}"
+
+
+def test_the_tracked_tree_has_no_unreviewed_findings():  # type: ignore[no-untyped-def]
+    """Run the gate itself, not just its rules.
+
+    CI runs this linter and its path filter covers tests/** — so a lint
+    failure is never silent. But the feedback arrives at PR time, and on
+    2026-08-20 a fixture IP added to THIS file failed the gate while the whole
+    pytest suite passed, which is how it reached a commit. Same check, an
+    order of magnitude sooner.
+
+    It calls `scan_tree`, the same function `main()` uses, so the suite and CI
+    cannot come to disagree about what a scan is.
+
+    Caveat: `scan_tree` reads the WORKING TREE. An uncommitted edit failing
+    the suite is the point — that is the incident above. The converse is a
+    real if unusual gap: stage a finding, then revert the file on disk without
+    re-adding, and the index still carries what `git commit` would ship while
+    this reads the clean copy."""
+    import pathlib
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    known = lint.load_baseline(str(repo))
+    new = [f"{f['rule']}: {f['path']}:{f['line']} {f['match']}"
+           for f in lint.scan_tree(str(repo)) if lint.finding_key(f) not in known]
+    assert new == [], "unreviewed publication findings at HEAD:\n  " + "\n  ".join(new)
+
+
+def test_scan_tree_skips_binaries_and_the_register_itself(tmp_path):  # type: ignore[no-untyped-def]
+    """Two skips that no in-repo test can exercise: this tree tracks no binary
+    file today, and the baseline is skipped because scanning the register of
+    findings would report its own quoted contents. Both are properties of
+    `scan_tree`, so they get a tree of their own."""
+    import json
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    payload = b"host=vault.corp.io\n"                  # pub-lint:allow
+    (tmp_path / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00" + payload)
+    (tmp_path / "notes.md").write_bytes(payload)
+    reg = tmp_path / "registry"
+    reg.mkdir()
+    (reg / "publication-baseline.json").write_text(
+        json.dumps({"notes.md::url-host::vault.corp.io": "x"}))   # pub-lint:allow
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+
+    paths = {f["path"] for f in lint.scan_tree(str(tmp_path))}
+    assert paths == {"notes.md"}          # the text file, and only it
+    assert "logo.png" not in paths        # a binary is not scanned as text
+    assert lint.BASELINE not in paths     # the register never scans itself
